@@ -1,29 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/svg.dart';
-import '../modle/modprofile.dart';
-import 'homePage.dart';
+import '../../modle/modprofile.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+import 'company_home_page.dart';
 
 
-
-class userprofile extends StatefulWidget {
-  const userprofile({super.key});
+class OwnerProfile extends StatefulWidget {
+  const OwnerProfile({super.key});
 
   @override
-  State<userprofile> createState() => _userprofileState();
+  State<OwnerProfile> createState() => _OwnerProfileState();
 }
 
-class _userprofileState extends State<userprofile> {
+class _OwnerProfileState extends State<OwnerProfile> {
+  List<modprofile> mod = [
+    modprofile(img: 'images/Notification.png', title: 'Villa 1', price: '20000', Suptitle: 'Gaza, Palestine', pad: '3', food: '2', shower: '2', iconimg: ''),
+    modprofile(img: 'images/Notification.png', title: 'Apartment', price: '15000', Suptitle: 'Rafah, Palestine', pad: '2', food: '1', shower: '1', iconimg: ''),
+    modprofile(img: 'images/Notification.png', title: 'Studio', price: '8000', Suptitle: 'Khan Younis', pad: '1', food: '1', shower: '1', iconimg: ''),
 
-  List<modprofile>mod=[
-    modprofile(img: 'images/apartment_1.png', title: 'asd', price: '20000', Suptitle: 'Suptitle', pad: 'pad', food: 'food', shower: 'shower',iconimg: ''),
-    modprofile(img: 'images/apartment_1.png', title: 'titadle', price: '20000', Suptitle: 'Suptitle', pad: 'pad', food: 'food', shower: 'shower',iconimg: ''),
-    modprofile(img: 'images/apartment_1.png', title: 'dsad', price: '20000', Suptitle: 'Suptitle', pad: 'pad', food: 'food', shower: 'shower',iconimg: ''),
   ];
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     const primaryColor = Color(0xff22577A);
+
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         onPressed: () {},
@@ -42,7 +43,7 @@ class _userprofileState extends State<userprofile> {
               onPressed: () {
                 Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (context) => const homePage()),
+                  MaterialPageRoute(builder: (context) => const CompanyHomePage()),
                       (route) => false,
                 );
               },
@@ -57,7 +58,7 @@ class _userprofileState extends State<userprofile> {
       ),
       appBar: AppBar(
         title: const Text(
-          'User Profile',
+          'Owner Profile',
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -86,7 +87,7 @@ class _userprofileState extends State<userprofile> {
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'Mostafa Kullab',
+                  'AlReyada',
                   style: TextStyle(
                     color: Colors.black,
                     fontSize: 20,
@@ -94,7 +95,7 @@ class _userprofileState extends State<userprofile> {
                   ),
                 ),
                 const Text(
-                  'example@gmail.com',
+                  'AlReyada@gmail.com',
                   style: TextStyle(color: Colors.grey, fontSize: 14),
                 ),
               ],
@@ -106,7 +107,7 @@ class _userprofileState extends State<userprofile> {
             child: Align(
               alignment: Alignment.topLeft,
               child: Text(
-                'Saved',
+                'Properties',
                 style: TextStyle(
                   color: Colors.black,
                   fontSize: size.width * 0.05,
@@ -206,6 +207,7 @@ class _userprofileState extends State<userprofile> {
       ),
     );
   }
+
   Widget _buildIconText(IconData icon, String text) {
     return Row(
       children: [

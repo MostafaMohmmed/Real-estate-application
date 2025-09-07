@@ -1,3 +1,4 @@
+import 'package:final_iug_2025/screen/Company/company_home_page.dart';
 import 'package:final_iug_2025/screen/homePage.dart';
 import 'package:final_iug_2025/screen/login_in_and_sign_up.dart';
 import 'package:final_iug_2025/screen/splash_screen.dart';
@@ -19,7 +20,7 @@ class MyApp extends StatelessWidget {
       splitScreenMode: true,
       builder: (context, child) {
         return MaterialApp(
-          debugShowCheckedModeBanner: false, // ✅ لغينا شارة الـ Debug
+          debugShowCheckedModeBanner: false,
           home: child,
         );
       },

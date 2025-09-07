@@ -1,20 +1,19 @@
-
-
-import 'package:final_iug_2025/screen/changepassword.dart';
-import 'package:final_iug_2025/screen/privacy_policy.dart';
-import 'package:final_iug_2025/screen/userprofile.dart';
 import 'package:flutter/material.dart';
-import 'notification.dart';
-import 'homePage.dart';
-import 'login_in_and_sign_up.dart';
-class Settings extends StatefulWidget {
-  const Settings({super.key});
+import '../login_in_and_sign_up.dart';
+import 'company_home_page.dart';
+import 'company_change_password.dart';
+import 'company_notificatin.dart';
+import 'company_privacy_policy.dart';
+import 'ownerprofile.dart';
+
+class CompanySettings extends StatefulWidget {
+  const CompanySettings({super.key});
 
   @override
-  State<Settings> createState() => _CompanySettingsState();
+  State<CompanySettings> createState() => _CompanySettingsState();
 }
 
-class _CompanySettingsState extends State<Settings> {
+class _CompanySettingsState extends State<CompanySettings> {
   final List<Map<String, dynamic>> settings = [
     {"title": "Profile", "icon": Icons.person},
     {"title": "Change Password", "icon": Icons.lock_reset},
@@ -46,7 +45,7 @@ class _CompanySettingsState extends State<Settings> {
               onPressed: () {
                 Navigator.pushReplacement(
                   context,
-                  MaterialPageRoute(builder: (context) => const homePage()),
+                  MaterialPageRoute(builder: (context) => const CompanyHomePage()),
                 );
               },
             ),
@@ -184,25 +183,25 @@ class _CompanySettingsState extends State<Settings> {
       case "Profile":
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const userprofile()),
+          MaterialPageRoute(builder: (context) => const OwnerProfile()),
         );
         break;
       case "Change Password":
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const ChangePassword()),
+          MaterialPageRoute(builder: (context) => const CompanyChangePassword()),
         );
         break;
       case "Privacy Policy":
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const Privacy_Policy()),
+          MaterialPageRoute(builder: (context) => const Company_Privacy_Policy()),
         );
         break;
       case "Notification":
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const NotificationsPage()),
+          MaterialPageRoute(builder: (context) => const Company_Notification()),
         );
         break;
       case "Log Out":

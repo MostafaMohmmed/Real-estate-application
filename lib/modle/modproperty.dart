@@ -16,3 +16,20 @@ class modproperty{
   });
 
 }
+class PropertyModel {
+  String title;
+  String price;
+  String location;
+  String description;
+  String type; // House / Apartment / Office / Land
+  String imagePath;
+
+  PropertyModel({
+    required this.title,
+    required this.price,
+    required this.location,
+    required this.description,
+    required this.type,
+    required this.imagePath,
+  });
+}

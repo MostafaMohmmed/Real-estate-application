@@ -3,6 +3,8 @@ import 'package:final_iug_2025/screen/reset_password.dart';
 import 'package:final_iug_2025/screen/settings.dart';
 import 'package:flutter/material.dart';
 
+import 'Company/company_home_page.dart';
+
 class LogIn extends StatefulWidget {
   final bool isCompany;
   const LogIn({super.key, this.isCompany = false});
@@ -89,7 +91,7 @@ class _LogInState extends State<LogIn> {
                   if (widget.isCompany) {
                     Navigator.pushReplacement(
                         context,
-                        MaterialPageRoute(builder: (_) => const settings()));
+                        MaterialPageRoute(builder: (_) => const CompanyHomePage()));
                   } else {
                     // login user
                     Navigator.pushReplacement(
