@@ -1,10 +1,11 @@
+// featured_property_homepage.dart
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'propertdetalis.dart'; // تأكد من المسار الصحيح
+import 'propertdetalis.dart';
 
 class FeaturedPropertyhomepage extends StatelessWidget {
-  final String propertyType; // النوع المطلوب
+  final String propertyType;
   const FeaturedPropertyhomepage({super.key, required this.propertyType});
 
   // ------- Helpers -------
@@ -20,7 +21,6 @@ class FeaturedPropertyhomepage extends StatelessWidget {
     if (v == null) return const [];
     if (v is Iterable) return v.map((e) => e.toString()).toList();
     if (v is String && v.trim().isNotEmpty) {
-      // يدعم "a,b,c"
       return v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     }
     return const [];
@@ -56,8 +56,6 @@ class FeaturedPropertyhomepage extends StatelessWidget {
       stream: stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          // ignore: avoid_print
-          print('Featured error => ${snapshot.error}');
           return const Center(child: Text('An error occurred while downloading'));
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -65,9 +63,7 @@ class FeaturedPropertyhomepage extends StatelessWidget {
         }
 
         var docs = snapshot.data?.docs ?? [];
-        // فلترة حسب النوع
         docs = docs.where((d) => (d.data()['type'] ?? '') == propertyType).toList();
-        // ترتيب محلي بالأجدد أولًا
         docs.sort((a, b) => _createdAtOf(b.data()).compareTo(_createdAtOf(a.data())));
         if (docs.isEmpty) return const Center(child: Text('No data for this species.'));
 
@@ -78,7 +74,8 @@ class FeaturedPropertyhomepage extends StatelessWidget {
           separatorBuilder: (_, __) => SizedBox(height: size.height * 0.012),
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            final data = docs[index].data();
+            final snap = docs[index];                  // NEW: نحتاج الـ snapshot نفسه
+            final data = snap.data();
 
             final title    = (data['title'] ?? '').toString();
             final price    = data['price'];
@@ -99,6 +96,11 @@ class FeaturedPropertyhomepage extends StatelessWidget {
             final imageUrl  = (data['imageUrl'] ?? '').toString();
             final imageBlob = _bytes(data['imageBlob']);
 
+            // NEW: استخرج companyId/propId والمسار الكامل
+            final companyId = snap.reference.parent.parent!.id;   // companies/{companyId}/properties
+            final propId    = snap.id;
+            final propertyPath = 'companies/$companyId/properties/$propId';
+
             Widget image;
             if (imageBlob != null) {
               image = Image.memory(imageBlob, fit: BoxFit.cover);
@@ -115,7 +117,7 @@ class FeaturedPropertyhomepage extends StatelessWidget {
 
             return InkWell(
               onTap: () {
-                // 👈 فتح صفحة التفاصيل وتمرير كل القيم المطلوبة
+                // NEW: مرّر ownerUid + propertyDocPath
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -131,6 +133,8 @@ class FeaturedPropertyhomepage extends StatelessWidget {
                       baths: baths.toInt(),
                       ownerName: ownerName,
                       ownerImageUrl: ownerImageUrl.isNotEmpty ? ownerImageUrl : null,
+                      ownerUid: companyId,                 // NEW
+                      propertyDocPath: propertyPath,       // NEW
                       amenities: amenities,
                       interior: interior,
                       construction: construction,
@@ -158,18 +162,13 @@ class FeaturedPropertyhomepage extends StatelessWidget {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(14),
-                        child: SizedBox(
-                          width: 110,
-                          height: 110,
-                          child: image,
-                        ),
+                        child: SizedBox(width: 110, height: 110, child: image),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // عنوان + سعر
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -180,8 +179,7 @@ class FeaturedPropertyhomepage extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
-                                      fontSize:
-                                      (size.width * 0.040).clamp(13.0, 16.0),
+                                      fontSize: (size.width * 0.040).clamp(13.0, 16.0),
                                     ),
                                   ),
                                 ),
@@ -192,14 +190,12 @@ class FeaturedPropertyhomepage extends StatelessWidget {
                                   style: TextStyle(
                                     color: const Color(0xFF4A43EC),
                                     fontWeight: FontWeight.w800,
-                                    fontSize:
-                                    (size.width * 0.035).clamp(11.0, 14.0),
+                                    fontSize: (size.width * 0.035).clamp(11.0, 14.0),
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 6),
-                            // موقع + شارة النوع
                             Row(
                               children: [
                                 const Icon(Icons.location_on_outlined,
@@ -212,15 +208,13 @@ class FeaturedPropertyhomepage extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: Colors.black54,
-                                      fontSize:
-                                      (size.width * 0.030).clamp(10.5, 13.0),
+                                      fontSize: (size.width * 0.030).clamp(10.5, 13.0),
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 6),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                   decoration: BoxDecoration(
                                     color: Colors.orange.shade50,
                                     borderRadius: BorderRadius.circular(10),
@@ -239,24 +233,16 @@ class FeaturedPropertyhomepage extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            // مزايا مضغوطة
                             FittedBox(
                               fit: BoxFit.scaleDown,
                               alignment: Alignment.centerLeft,
                               child: Row(
                                 children: [
-                                  _IconText(
-                                    icon: Icons.square_foot,
-                                    text: '${areaSqft > 0 ? areaSqft : 0} sqft',
-                                  ),
+                                  _IconText(icon: Icons.square_foot, text: '${areaSqft > 0 ? areaSqft : 0} sqft'),
                                   const SizedBox(width: 12),
-                                  _IconText(
-                                      icon: Icons.bed,
-                                      text: '${beds > 0 ? beds : 0}'),
+                                  _IconText(icon: Icons.bed, text: '${beds > 0 ? beds : 0}'),
                                   const SizedBox(width: 12),
-                                  _IconText(
-                                      icon: Icons.shower,
-                                      text: '${baths > 0 ? baths : 0}'),
+                                  _IconText(icon: Icons.shower, text: '${baths > 0 ? baths : 0}'),
                                 ],
                               ),
                             ),
@@ -287,10 +273,7 @@ class _IconText extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: const Color(0xFFEA8734)),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5),
-        ),
+        Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5)),
       ],
     );
   }

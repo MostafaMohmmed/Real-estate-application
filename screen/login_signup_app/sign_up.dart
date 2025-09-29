@@ -1,9 +1,11 @@
-import 'dart:async';                                  // NEW: لاشتراك onTokenRefresh
+// lib/screen/login_signup_app/sign_up.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';    // ⬅️ Auth لإنشاء/تسجيل دخول المستخدمين
-import 'package:cloud_firestore/cloud_firestore.dart';// ⬅️ Firestore لقراءة/كتابة البيانات
-import 'package:firebase_messaging/firebase_messaging.dart'; // ⬅️ توكن FCM
-// NEW: مستمع الإشعارات المحلية (صوت فوري بدون دفع)
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import 'package:final_iug_2025/services/foreground_notifier.dart';
 
 class Sign_Up extends StatefulWidget {
@@ -19,34 +21,29 @@ class _Sign_UpState extends State<Sign_Up> {
 
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();     // ⬅️ جديد
   final _passwordController = TextEditingController();
 
   bool _passwordVisible = false;
   bool _loading = false;
 
-  // ===================== NEW: مرجع لاشتراك onTokenRefresh =====================
-  // (عربي) لازم Subscription مش Stream — عشان نقدر نعمل cancel في dispose
   StreamSubscription<String>? _tokenSub;
-  // ============================================================================
 
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _phoneController.dispose();                         // ⬅️ جديد
     _passwordController.dispose();
-    // NEW: ألغِ الاشتراك لو كان شغّال
     _tokenSub?.cancel();
     super.dispose();
   }
 
-  // ===================== NEW: دالة إضافة إشعار داخل Firestore =====================
-  // (عربي) هذه الدالة تكتب إشعار تحت مسار المستخدم: users/{uid}/notifications/{autoId}
-  // حقول الإشعار: title, body, type (Account/Security/...), isRead=false, createdAt=serverTimestamp
   Future<void> _addNotification({
     required String uid,
     required String title,
     required String body,
-    required String type, // مثال: Account
+    required String type,
   }) async {
     await FirebaseFirestore.instance
         .collection('users')
@@ -60,10 +57,7 @@ class _Sign_UpState extends State<Sign_Up> {
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
-  // =========================================================================
 
-  // ===================== NEW: حفظ توكن الإشعارات تحت الحساب =====================
-  // (عربي) نخزن التوكن كـ document id = token (يدمج تلقائيًا)، ونحدّثه عند تغيّر التوكن
   Future<void> _saveFcmTokenForAccount({
     required String uid,
     required bool isCompany,
@@ -84,7 +78,6 @@ class _Sign_UpState extends State<Sign_Up> {
         'platform': 'flutter',
       }, SetOptions(merge: true));
 
-      // (عربي) لو تغيّر التوكن لاحقًا، نسجّله مباشرة
       _tokenSub?.cancel();
       _tokenSub = FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
         await FirebaseFirestore.instance
@@ -98,13 +91,11 @@ class _Sign_UpState extends State<Sign_Up> {
         }, SetOptions(merge: true));
       });
     } catch (e) {
-      // (عربي) فشل حفظ التوكن لا يجب أن يوقف عملية التسجيل — فقط لوج
       debugPrint('⚠️ Failed to save FCM token: $e');
     }
   }
-  // ============================================================================
 
-  String _authErrorMsg(FirebaseAuthException e) {                  // ⬅️ ترجمة أخطاء Auth لرسائل مفهومة
+  String _authErrorMsg(FirebaseAuthException e) {
     switch (e.code) {
       case 'email-already-in-use':
         return 'This email is already registered.';
@@ -121,7 +112,7 @@ class _Sign_UpState extends State<Sign_Up> {
     }
   }
 
-  String _firestoreErrorMsg(FirebaseException e) {                 // ⬅️ ترجمة أخطاء Firestore
+  String _firestoreErrorMsg(FirebaseException e) {
     switch (e.code) {
       case 'permission-denied':
         return 'You don’t have permission to write to Firestore. Check your rules and publish them.';
@@ -130,34 +121,46 @@ class _Sign_UpState extends State<Sign_Up> {
     }
   }
 
-  Future<void> _ensureProfile({                                   // ⬅️ إنشاء/تأكيد وثيقة المستخدم
+  /// إنشاء/تأكيد الملف في Firestore وتخزين الهاتف.
+  Future<void> _ensureProfile({
     required String uid,
     required bool isCompany,
     required String fullName,
     required String email,
+    String? phone, // ⬅️ جديد
   }) async {
-    final col = isCompany ? 'companies' : 'users';                 // ⬅️ نختار التجميعة حسب الدور
-    final ref = FirebaseFirestore.instance
-        .collection(col)
-        .doc(uid);
+    final col = isCompany ? 'companies' : 'users';
+    final ref = FirebaseFirestore.instance.collection(col).doc(uid);
 
-    print('📄 Will write Firestore => $col/$uid');
+    final data = <String, dynamic>{
+      'fullName': fullName.trim(),
+      'email': email.trim().toLowerCase(),
+      'role': isCompany ? 'company' : 'user',
+      'createdAt': FieldValue.serverTimestamp(),
+      if ((phone ?? '').trim().isNotEmpty) 'phone': phone!.trim(), // ⬅️ جديد
+    };
 
     final snap = await ref.get();
     if (!snap.exists) {
-      await ref.set({
-        'fullName': fullName.trim(),
-        'email': email.trim().toLowerCase(),
-        'role': isCompany ? 'company' : 'user',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      print('✅ Firestore write done');
+      await ref.set(data);
     } else {
-      print('ℹ️ Doc already exists, skipping set');
+      // تحديث دمجيّ — لا نكتب createdAt مرة أخرى
+      await ref.set({
+        if (fullName.trim().isNotEmpty) 'fullName': fullName.trim(),
+        if ((phone ?? '').trim().isNotEmpty) 'phone': phone!.trim(), // ⬅️ جديد
+      }, SetOptions(merge: true));
     }
+  }
 
-    final readback = await ref.get();
-    print('🔎 Read-back exists=${readback.exists} data=${readback.data()}');
+  /// تحديث الهاتف لاحقًا لو حصلنا عليه من Google (غالبًا null).
+  Future<void> _upsertPhoneIfAvailable(User user) async {
+    final phoneFromAuth = (user.phoneNumber ?? '').trim(); // عادةً null في Google
+    if (phoneFromAuth.isEmpty) return;
+
+    final col = widget.isCompany ? 'companies' : 'users';
+    await FirebaseFirestore.instance.collection(col).doc(user.uid).set({
+      'phone': phoneFromAuth,
+    }, SetOptions(merge: true));
   }
 
   Future<void> _register() async {
@@ -165,23 +168,21 @@ class _Sign_UpState extends State<Sign_Up> {
 
     setState(() => _loading = true);
     try {
-      UserCredential cred;                                         // ⬅️ نتيجة Auth
-      bool didCreate = true;                                       // NEW: هل كان Sign up جديد أم Sign in قديم؟
+      UserCredential cred;
+      bool didCreate = true;
 
       try {
-        cred = await FirebaseAuth.instance
-            .createUserWithEmailAndPassword(
+        cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
       } on FirebaseAuthException catch (e) {
         if (e.code == 'email-already-in-use') {
-          // (عربي) لو الإيميل موجود، نحاول تسجيل دخول بنفس البيانات
           cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
             email: _emailController.text.trim(),
             password: _passwordController.text.trim(),
           );
-          didCreate = false; // NEW: هذا Sign in لحساب موجود
+          didCreate = false;
         } else {
           rethrow;
         }
@@ -192,32 +193,33 @@ class _Sign_UpState extends State<Sign_Up> {
         throw Exception('Auth failed: no currentUser');
       }
 
-      // ===================== NEW: تحديث displayName من الاسم المُدخل (اختياري) =====================
+      // اختيارياً: حدّث الاسم الظاهر في FirebaseAuth
       if (_nameController.text.trim().isNotEmpty) {
         await user.updateDisplayName(_nameController.text.trim());
       }
 
-      // ⬅️ نضمن ملف Firestore (users/companies) حسب الدور
+      // إنشاء/تحديث الملف في Firestore + الهاتف
       await _ensureProfile(
         uid: user.uid,
         isCompany: widget.isCompany,
         fullName: _nameController.text,
         email: _emailController.text,
+        phone: _phoneController.text, // ⬅️ جديد
       );
 
-      // ===================== NEW: ابدأ مستمع الإشعارات المحلي فورًا =====================
-      // (عربي) تشغيل الصوت/الإشعار بدون ما تفتح صفحة Notifications
-      await ForegroundNotifier.instance.start(user.uid);
-      // =====================================================================
+      // لو جوجل بالمستقبل أعطانا رقم هاتف في user.phoneNumber
+      await _upsertPhoneIfAvailable(user); // لن يغيّر شيئًا إن كان null
 
-      // ===================== NEW: حفظ FCM token تحت الحساب المناسب =====================
+      // إشعارات فورية محلية
+      await ForegroundNotifier.instance.start(user.uid);
+
+      // حفظ توكن FCM
       await _saveFcmTokenForAccount(
         uid: user.uid,
         isCompany: widget.isCompany,
       );
-      // ==============================================================================
 
-      // ===================== NEW: إرسال إشعار إلى Firestore حسب النتيجة =====================
+      // إشعار داخلي
       try {
         if (didCreate) {
           await _addNotification(
@@ -234,10 +236,7 @@ class _Sign_UpState extends State<Sign_Up> {
             type: 'Account',
           );
         }
-      } catch (e) {
-        // (عربي) لو فشل تسجيل الإشعار، ما نكسر تجربة المستخدم — فقط لوج
-        print('⚠️ Failed to add notification: $e');
-      }
+      } catch (_) {}
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -252,6 +251,7 @@ class _Sign_UpState extends State<Sign_Up> {
 
       _nameController.clear();
       _emailController.clear();
+      _phoneController.clear();          // ⬅️ جديد
       _passwordController.clear();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
@@ -263,13 +263,13 @@ class _Sign_UpState extends State<Sign_Up> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_firestoreErrorMsg(e))),
       );
-      print('🔥 Firestore error: code=${e.code} | message=${e.message}');
+      debugPrint('🔥 Firestore error: code=${e.code} | message=${e.message}');
     } catch (e, st) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Unexpected error: $e')),
       );
-      print('❌ Unexpected error: $e\n$st');
+      debugPrint('❌ Unexpected error: $e\n$st');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -284,7 +284,7 @@ class _Sign_UpState extends State<Sign_Up> {
           key: const ValueKey('signup_form'),
           mainAxisSize: MainAxisSize.min,
           children: [
-            // (UI فقط)
+            // Full name
             TextFormField(
               controller: _nameController,
               decoration: InputDecoration(
@@ -302,7 +302,7 @@ class _Sign_UpState extends State<Sign_Up> {
             ),
             const SizedBox(height: 12),
 
-            // (UI فقط)
+            // Email
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
@@ -325,7 +325,32 @@ class _Sign_UpState extends State<Sign_Up> {
             ),
             const SizedBox(height: 12),
 
-            // (UI فقط)
+            // Phone (optional but recommended)
+            TextFormField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.phone_outlined, color: Colors.grey),
+                hintText: 'Phone number',
+                filled: true,
+                fillColor: const Color(0xFFF2F3F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              // اجعلها اختيارية أو فعّل التحقق حسب رغبتك
+              validator: (v) {
+                final value = (v ?? '').trim();
+                if (value.isEmpty) return null; // اختياري
+                // تحقق بسيط جداً
+                final ok = RegExp(r'^[0-9+\-\s]{6,}$').hasMatch(value);
+                return ok ? null : 'Enter a valid phone number';
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // Password
             TextFormField(
               controller: _passwordController,
               obscureText: !_passwordVisible,
@@ -352,7 +377,6 @@ class _Sign_UpState extends State<Sign_Up> {
             ),
             const SizedBox(height: 16),
 
-            // (UI فقط)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

@@ -96,19 +96,19 @@ class _LogInState extends State<LogIn> {
         'platform': 'flutter',
       }, SetOptions(merge: true));
 
+      // استمع لأي تحديث للتوكن
       _tokenSub?.cancel();
-      _tokenSub =
-          FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-            await FirebaseFirestore.instance
-                .collection(col)
-                .doc(uid)
-                .collection('tokens')
-                .doc(newToken)
-                .set({
-              'createdAt': FieldValue.serverTimestamp(),
-              'platform': 'flutter',
-            }, SetOptions(merge: true));
-          });
+      _tokenSub = FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        await FirebaseFirestore.instance
+            .collection(col)
+            .doc(uid)
+            .collection('tokens')
+            .doc(newToken)
+            .set({
+          'createdAt': FieldValue.serverTimestamp(),
+          'platform': 'flutter',
+        }, SetOptions(merge: true));
+      });
     } catch (e) {
       debugPrint('⚠️ Failed to save FCM token: $e');
     }
@@ -116,14 +116,10 @@ class _LogInState extends State<LogIn> {
 
   // ----------------- Firestore helpers -----------------
   Future<String?> _fetchRoleOnly(String uid) async {
-    final uSnap =
-    await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final uSnap = await FirebaseFirestore.instance.collection('users').doc(uid).get();
     if (uSnap.exists) return (uSnap.data()?['role'] ?? 'user').toString();
 
-    final cSnap = await FirebaseFirestore.instance
-        .collection('companies')
-        .doc(uid)
-        .get();
+    final cSnap = await FirebaseFirestore.instance.collection('companies').doc(uid).get();
     if (cSnap.exists) return (cSnap.data()?['role'] ?? 'company').toString();
 
     return null;
@@ -187,13 +183,13 @@ class _LogInState extends State<LogIn> {
         title: 'Signed in successfully',
         body: 'You are now signed in.',
         type: 'Account',
-        isCompany: role == 'company', // 👈 مهم
+        isCompany: role == 'company',
       );
 
-      // مستمع الإشعارات المحلي
+      // مستمع الإشعارات المحلي (تظهر Toast/Heads-up لو أردت)
       await ForegroundNotifier.instance.start(uid);
 
-      // حفظ FCM token
+      // ✅ حفظ FCM token مباشرة بعد تسجيل الدخول
       await _saveFcmTokenForAccount(
         uid: uid,
         isCompany: role == 'company',
@@ -256,8 +252,7 @@ class _LogInState extends State<LogIn> {
         idToken: googleAuth.idToken,
         accessToken: googleAuth.accessToken,
       );
-      final userCred =
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user!;
       final role = await _fetchRoleOnly(user.uid);
 
@@ -283,12 +278,13 @@ class _LogInState extends State<LogIn> {
       // مستمع الإشعارات المحلي
       await ForegroundNotifier.instance.start(user.uid);
 
-      // حفظ FCM token للمستخدم
+      // ✅ حفظ FCM token للمستخدم مباشرة بعد نجاح Google Sign-In
       await _saveFcmTokenForAccount(
         uid: user.uid,
         isCompany: false,
       );
-
+// ✅ اطلب رقم الجوال لو مش محفوظ
+      await _ensurePhonePresent(uid: user.uid, isCompany: false);
       await _navigateByRole('user');
     } on FirebaseAuthException catch (e) {
       _show('Google sign-in failed: ${e.code}');
@@ -303,6 +299,75 @@ class _LogInState extends State<LogIn> {
   void _underDevelopment() {
     _show('Feature under development');
   }
+  // --- أضف هذه الدالة داخل _LogInState ---
+  /// يطلب رقم الجوال مرة واحدة إذا لم يكن محفوظًا، ثم يحفظه في Firestore.
+  Future<void> _ensurePhonePresent({
+    required String uid,
+    required bool isCompany,
+  }) async {
+    final col = isCompany ? 'companies' : 'users';
+    final ref = FirebaseFirestore.instance.collection(col).doc(uid);
+    final snap = await ref.get();
+    final existing = (snap.data() ?? {});
+    final already = (existing['phone'] ?? '').toString().trim();
+
+    if (already.isNotEmpty) return; // رقم موجود - لا حاجة لشيء
+
+    String? phone;
+    // نافذة لإدخال الرقم
+    phone = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final c = TextEditingController();
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            left: 16, right: 16, top: 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Add your phone number',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: c,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. +9705XXXXXXXX',
+                  filled: true,
+                  border: OutlineInputBorder(borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () {
+                  final raw = c.text.trim();
+                  final ok = RegExp(r'^[0-9+\-\s]{6,}$').hasMatch(raw);
+                  if (!ok) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(content: Text('Enter a valid phone number')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(ctx, raw);
+                },
+                child: const Text('Save'),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (phone == null || phone.trim().isEmpty) return; // المستخدم أغلق بدون إدخال
+
+    await ref.set({'phone': phone.trim()}, SetOptions(merge: true));
+  }
+
 
   // ----------------- UI -----------------
   @override
@@ -342,8 +407,7 @@ class _LogInState extends State<LogIn> {
                   passwordVisible ? Icons.visibility_off : Icons.visibility,
                   color: Colors.grey,
                 ),
-                onPressed: () =>
-                    setState(() => passwordVisible = !passwordVisible),
+                onPressed: () => setState(() => passwordVisible = !passwordVisible),
               ),
               hintText: 'Password',
               filled: true,
@@ -399,8 +463,7 @@ class _LogInState extends State<LogIn> {
                   width: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-                    : const Text('Login',
-                    style: TextStyle(color: Colors.white)),
+                    : const Text('Login', style: TextStyle(color: Colors.white)),
               ),
             ],
           ),
@@ -484,8 +547,7 @@ class _LogInState extends State<LogIn> {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
             ),

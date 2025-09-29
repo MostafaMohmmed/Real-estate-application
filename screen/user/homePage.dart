@@ -1,11 +1,16 @@
 // homePage.dart
+import 'package:flutter/material.dart';
 import 'package:final_iug_2025/screen/user/searchPage.dart';
 import 'package:final_iug_2025/screen/user/see_all_properties_page.dart';
-import 'package:flutter/material.dart';
 
 import 'AllPropertyHomePage.dart';
 import 'FeaturedPropertyhomepage.dart';
 import 'settings/settings.dart';
+
+// NEW: إضافات
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:final_iug_2025/services/foreground_notifier.dart';
+import 'package:final_iug_2025/services/fcm_service.dart' as fcm; // تأكد من المسار
 
 class homePage extends StatefulWidget {
   const homePage({super.key});
@@ -17,6 +22,30 @@ class _homePageState extends State<homePage> {
   final List<String> labels = ['House', 'Apartment', 'Office', 'Land'];
   int currentIndex = 0;
   final searchController = TextEditingController();
+
+  // NEW: عشان ما نكرر التهيئة
+  static bool _didInitFCM = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initFcmOnce(); // ننادي دالة async منفصلة
+  }
+
+  Future<void> _initFcmOnce() async {
+    if (_didInitFCM) return;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      // تشغيل مستمع الإشعارات داخل التطبيق (التوست المحلي)
+      ForegroundNotifier.instance.start(uid);
+
+      // حفظ/تحديث FCM token للمستخدم
+      await fcm.initFcmForUser();
+    }
+
+    _didInitFCM = true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -98,10 +127,13 @@ class _homePageState extends State<homePage> {
                   SizedBox(width: size.width * 0.02),
                   GestureDetector(
                     onTap: () {
-                      final q = searchController.text.trim();
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => SearchEstimatedCostPage(initialQuery: searchController.text)),
+                        MaterialPageRoute(
+                          builder: (_) => SearchEstimatedCostPage(
+                            initialQuery: searchController.text.trim(),
+                          ),
+                        ),
                       );
                     },
                     child: Container(

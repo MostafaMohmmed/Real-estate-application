@@ -7,6 +7,7 @@ import 'propertdetalis.dart'; // تأكد من المسار الصحيح
 class AllPropertyHomePage extends StatelessWidget {
   const AllPropertyHomePage({super.key});
 
+  // ------- Helpers -------
   Uint8List? _bytes(dynamic raw) {
     if (raw == null) return null;
     if (raw is Blob) return raw.bytes;
@@ -19,7 +20,6 @@ class AllPropertyHomePage extends StatelessWidget {
     if (v == null) return const [];
     if (v is Iterable) return v.map((e) => e.toString()).toList();
     if (v is String && v.trim().isNotEmpty) {
-      // يدعم "a,b,c"
       return v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     }
     return const [];
@@ -36,6 +36,7 @@ class AllPropertyHomePage extends StatelessWidget {
   }
 
   num _numOrZero(dynamic v) => (v is num) ? v : 0;
+  // -----------------------
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +85,13 @@ class AllPropertyHomePage extends StatelessWidget {
             itemCount: count,
             separatorBuilder: (_, __) => SizedBox(width: size.width * 0.03),
             itemBuilder: (context, i) {
-              final data = docs[i].data();
+              final doc = docs[i];
+              final data = doc.data();
+
+              // استخرج companyId / propId / path من الـ collectionGroup
+              final companyId = doc.reference.parent.parent!.id;
+              final propId = doc.id;
+              final propertyPath = 'companies/$companyId/properties/$propId';
 
               // حقول أساسية
               final title       = (data['title'] ?? '').toString();
@@ -97,7 +104,7 @@ class AllPropertyHomePage extends StatelessWidget {
               final bedsNum     = _numOrZero(data['beds']);
               final bathsNum    = _numOrZero(data['baths']);
 
-              // قوائم قابلة للتمرير للتفاصيل
+              // قوائم للتفاصيل
               final amenities    = _list(data['amenities']);
               final interior     = _list(data['interior']);
               final construction = _list(data['construction']);
@@ -106,10 +113,10 @@ class AllPropertyHomePage extends StatelessWidget {
               final imageUrl  = (data['imageUrl'] ?? '').toString();
               final imageBlob = _bytes(data['imageBlob']);
 
-              // المالك
+              // المالك (اختياري)
               final ownerName = (data['ownerName'] ?? 'Company').toString();
               final ownerImg  = (data['ownerImageUrl'] ?? '').toString();
-              final ownerUid  = (data['ownerUid'] ?? '').toString(); // 👈 سيمرّ للصفحة
+              // ownerUid بناخذه من المسار نفسه (companyId)
 
               Widget image;
               if (imageBlob != null) {
@@ -133,6 +140,7 @@ class AllPropertyHomePage extends StatelessWidget {
 
               return InkWell(
                 onTap: () {
+                  // نمرّر المسار والـ companyId عشان صفحة التفاصيل وحفظ الطلبات
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -148,7 +156,8 @@ class AllPropertyHomePage extends StatelessWidget {
                         baths: bathsNum.toInt(),
                         ownerName: ownerName,
                         ownerImageUrl: ownerImg.isNotEmpty ? ownerImg : null,
-                        ownerUid: ownerUid.isNotEmpty ? ownerUid : null, // ✅ مهم
+                        ownerUid: companyId,            // ✅ مهم
+                        propertyDocPath: propertyPath,  // ✅ مهم
                         amenities: amenities,
                         interior: interior,
                         construction: construction,
@@ -171,7 +180,7 @@ class AllPropertyHomePage extends StatelessWidget {
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Padding(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(10), // ✅ تأكد من وجود "padding:"
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,

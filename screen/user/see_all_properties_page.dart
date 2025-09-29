@@ -34,7 +34,6 @@ class _SeeAllPageState extends State<SeeAllPage> {
   Widget build(BuildContext context) {
     final stream = FirebaseFirestore.instance
         .collectionGroup('properties') // من كل الشركات
-    // بدون orderBy هنا لتفادي الفهرس — سنرتّب محليًا
         .snapshots();
 
     final theme = Theme.of(context);
@@ -88,7 +87,6 @@ class _SeeAllPageState extends State<SeeAllPage> {
                       final w = cons.maxWidth;
                       const spacing = 12.0;
                       final columns = w >= 900 ? 4 : (w >= 650 ? 3 : 2);
-                      // childAspectRatio أصغر ⇒ ارتفاع أكبر ⇒ يمنع overflow
                       final childAspectRatio = (w >= 900)
                           ? 0.78
                           : (w >= 650 ? 0.74 : 0.70);
@@ -103,10 +101,10 @@ class _SeeAllPageState extends State<SeeAllPage> {
                         ),
                         itemCount: items.length,
                         itemBuilder: (_, i) => _CardTile(
-                          data: items[i].data(),
-                          isGrid: true, // 👈 Grid: سنظهر البادج فوق الصورة
-                          toBytes: _bytes,
-                          onOpenDetails: _openDetails, // 👈 فتح التفاصيل
+                          doc: items[i],            // 👈 نمرّر الـ snapshot
+                          isGrid: true,
+                          bytesOf: _bytes,
+                          onOpenDetails: _openDetailsWithDoc, // 👈 فتح التفاصيل بالـ doc
                         ),
                       );
                     },
@@ -130,10 +128,10 @@ class _SeeAllPageState extends State<SeeAllPage> {
                     itemBuilder: (_, i) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _CardTile(
-                        data: items[i].data(),
-                        isGrid: false, // 👈 List: سنعرض المالك داخل الكارد
-                        toBytes: _bytes,
-                        onOpenDetails: _openDetails, // 👈 فتح التفاصيل
+                        doc: items[i],            // 👈 نمرّر الـ snapshot
+                        isGrid: false,
+                        bytesOf: _bytes,
+                        onOpenDetails: _openDetailsWithDoc,
                       ),
                     ),
                   ),
@@ -152,8 +150,16 @@ class _SeeAllPageState extends State<SeeAllPage> {
     );
   }
 
-  // يفتح Propertdetalis ويمرر القيم من نفس الماب
-  void _openDetails(BuildContext context, Map<String, dynamic> data, Uint8List? Function(dynamic) toBytes) {
+  // === يفتح Propertdetalis ويمرّر المسار companies/{cid}/properties/{pid} ===
+  void _openDetailsWithDoc(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      Uint8List? Function(dynamic) toBytes,
+      ) {
+    final d = doc.data();
+    final imageUrl  = (d['imageUrl'] ?? '').toString();
+    final imageBlob = toBytes(d['imageBlob']);
+
     String _fmtPrice(dynamic value) {
       if (value is num) {
         final s = value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 2);
@@ -173,24 +179,10 @@ class _SeeAllPageState extends State<SeeAllPage> {
       return const [];
     }
 
-    final imageUrl  = (data['imageUrl'] ?? '').toString();
-    final imageBlob = toBytes(data['imageBlob']);
-
-    final title     = (data['title'] ?? '').toString();
-    final price     = data['price'];
-    final location  = (data['location'] ?? '').toString();
-    final type      = (data['type'] ?? '').toString();
-
-    final areaSqft  = (data['areaSqft'] is num) ? (data['areaSqft'] as num).toDouble() : 0.0;
-    final beds      = (data['beds'] is num) ? (data['beds'] as num).toInt() : 0;
-    final baths     = (data['baths'] is num) ? (data['baths'] as num).toInt() : 0;
-
-    final ownerName     = (data['ownerName'] ?? 'Company').toString();
-    final ownerImageUrl = (data['ownerImageUrl'] ?? '').toString();
-
-    final amenities    = _list(data['amenities']);
-    final interior     = _list(data['interior']);
-    final construction = _list(data['construction']);
+    // 👇 استخراج companyId/propId من الـ collectionGroup doc
+    final companyId = doc.reference.parent.parent!.id; // companies/{companyId}
+    final propId = doc.id;                             // properties/{propId}
+    final path = 'companies/$companyId/properties/$propId';
 
     Navigator.push(
       context,
@@ -198,18 +190,22 @@ class _SeeAllPageState extends State<SeeAllPage> {
         builder: (_) => Propertdetalis(
           imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
           imageBytes: imageBlob,
-          title: title.isEmpty ? 'Apartment' : title,
-          price: _fmtPrice(price),
-          location: location,
-          type: type,
-          areaSqft: areaSqft,
-          beds: beds,
-          baths: baths,
-          ownerName: ownerName,
-          ownerImageUrl: ownerImageUrl.isNotEmpty ? ownerImageUrl : null,
-          amenities: amenities,
-          interior: interior,
-          construction: construction,
+          title: (d['title'] ?? 'Apartment').toString(),
+          price: _fmtPrice(d['price']),
+          location: (d['location'] ?? '').toString(),
+          type: (d['type'] ?? '').toString(),
+          areaSqft: (d['areaSqft'] is num) ? (d['areaSqft'] as num).toDouble() : 0.0,
+          beds: (d['beds'] is num) ? (d['beds'] as num).toInt() : 0,
+          baths: (d['baths'] is num) ? (d['baths'] as num).toInt() : 0,
+          ownerName: (d['ownerName'] ?? 'Company').toString(),
+          ownerImageUrl: (d['ownerImageUrl'] ?? '').toString().isNotEmpty
+              ? (d['ownerImageUrl'] as String)
+              : null,
+          ownerUid: companyId,            // مفيد لو احتجته
+          propertyDocPath: path,          // ✅ مهم للحفظ والإشعارات
+          amenities: _list(d['amenities']),
+          interior: _list(d['interior']),
+          construction: _list(d['construction']),
         ),
       ),
     );
@@ -242,21 +238,24 @@ class _LoadMoreBar extends StatelessWidget {
 }
 
 class _CardTile extends StatelessWidget {
-  final Map<String, dynamic> data;
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc; // 👈 بدل Map إلى snapshot
   final bool isGrid;
-  final Uint8List? Function(dynamic) toBytes;
-  final void Function(BuildContext context, Map<String, dynamic> data, Uint8List? Function(dynamic)) onOpenDetails;
+  final Uint8List? Function(dynamic) bytesOf;
+  final void Function(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      Uint8List? Function(dynamic) toBytes,
+      ) onOpenDetails;
 
   const _CardTile({
-    required this.data,
+    required this.doc,
     required this.isGrid,
-    required this.toBytes,
+    required this.bytesOf,
     required this.onOpenDetails,
   });
 
   String _fmtPrice(dynamic value) {
     if (value is num) {
-      // إزالة .0 لو رقم صحيح
       final s = value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 2);
       return '\$$s';
     }
@@ -267,6 +266,7 @@ class _CardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final data = doc.data();
     final w = MediaQuery.of(context).size.width;
 
     // أحجام مرِنة
@@ -286,7 +286,7 @@ class _CardTile extends StatelessWidget {
     final baths     = (data['baths'] is num) ? (data['baths'] as num) : 0;
 
     final imageUrl  = (data['imageUrl'] ?? '').toString();
-    final imageBlob = toBytes(data['imageBlob']);
+    final imageBlob = bytesOf(data['imageBlob']);
 
     Widget imageChild;
     if (imageBlob != null) {
@@ -302,7 +302,7 @@ class _CardTile extends StatelessWidget {
       imageChild = Container(color: Colors.grey[300], child: const Icon(Icons.image));
     }
 
-    // شارة (بادج) اسم الشركة — نستخدمها فقط في Grid
+    // شارة (بادج) اسم الشركة — للـ Grid فقط
     Widget ownerBadge = Align(
       alignment: Alignment.topLeft,
       child: Container(
@@ -353,7 +353,6 @@ class _CardTile extends StatelessWidget {
     final imgRadius = 26.0;
 
     Widget featuresRow() {
-      // الآن من Firestore (مع قيم fallback)
       return FittedBox(
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
@@ -486,7 +485,7 @@ class _CardTile extends StatelessWidget {
     );
 
     return InkWell(
-      onTap: () => onOpenDetails(context, data, toBytes), // 👈 فتح التفاصيل
+      onTap: () => onOpenDetails(context, doc, bytesOf), // 👈 نمرّر الـ doc نفسه
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,

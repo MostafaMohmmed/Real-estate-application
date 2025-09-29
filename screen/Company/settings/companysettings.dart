@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import '../../login_signup_app/login_in_and_sign_up.dart';
+import '../chat/company_chat_list_page.dart';
 import '../company_home_page.dart';
 import 'company_change_password.dart';
 import 'company_notificatin.dart';
 import 'company_privacy_policy.dart';
+import 'company_requests_page.dart';
 import 'ownerprofile.dart';
 
 class CompanySettings extends StatefulWidget {
@@ -14,18 +19,52 @@ class CompanySettings extends StatefulWidget {
 }
 
 class _CompanySettingsState extends State<CompanySettings> {
-  final List<Map<String, dynamic>> settings = [
+  static const primaryColor = Color(0xff22577A);
+
+  bool _isCompany = false;
+
+  final List<Map<String, dynamic>> _baseSettings = const [
     {"title": "Profile", "icon": Icons.person},
     {"title": "Change Password", "icon": Icons.lock_reset},
     {"title": "Privacy Policy", "icon": Icons.privacy_tip},
-    {"title": "Notification", "icon": Icons.notifications},
-    {"title": "Log Out", "icon": Icons.logout},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfCompany();
+  }
+
+  Future<void> _checkIfCompany() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final snap = await FirebaseFirestore.instance
+        .collection('companies')
+        .doc(user.uid)
+        .get();
+    if (mounted) setState(() => _isCompany = snap.exists);
+  }
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    const primaryColor = Color(0xff22577A);
+
+    // لو الحساب شركة، أضف عناصر الشركة قبل Log Out
+    final settings = [
+      ..._baseSettings,
+      if (_isCompany) {
+        "title": "Company Requests",
+        "icon": Icons.shopping_bag_outlined
+      },
+      if (_isCompany) {
+        "title": "Company Notifications",
+        "icon": Icons.notifications_active_outlined
+      },
+      // داخل settings list عند الشركة
+      if (_isCompany) {"title": "Company Chats", "icon": Icons.forum_outlined},
+
+      {"title": "Log Out", "icon": Icons.logout}, // ⬅️ آخر عنصر دائمًا
+    ];
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
@@ -74,14 +113,15 @@ class _CompanySettingsState extends State<CompanySettings> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // موبايل -> قائمة
             if (constraints.maxWidth < 600) {
+              // Mobile view
               return ListView.separated(
                 padding: EdgeInsets.all(constraints.maxWidth * 0.04),
                 itemCount: settings.length,
                 separatorBuilder: (context, index) =>
                     SizedBox(height: constraints.maxHeight * 0.02),
                 itemBuilder: (context, index) {
+                  final item = settings[index];
                   return Card(
                     elevation: 2,
                     shape: RoundedRectangleBorder(
@@ -89,7 +129,7 @@ class _CompanySettingsState extends State<CompanySettings> {
                     ),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
-                      onTap: () => _handleTap(settings[index]["title"]),
+                      onTap: () => _handleTap(item["title"] as String),
                       child: Padding(
                         padding: EdgeInsets.symmetric(
                           vertical: constraints.maxHeight * 0.02,
@@ -101,7 +141,7 @@ class _CompanySettingsState extends State<CompanySettings> {
                               radius: constraints.maxWidth * 0.07,
                               backgroundColor: primaryColor.withOpacity(0.1),
                               child: Icon(
-                                settings[index]["icon"],
+                                item["icon"] as IconData,
                                 color: primaryColor,
                                 size: constraints.maxWidth * 0.07,
                               ),
@@ -109,7 +149,7 @@ class _CompanySettingsState extends State<CompanySettings> {
                             SizedBox(width: constraints.maxWidth * 0.05),
                             Expanded(
                               child: Text(
-                                settings[index]["title"],
+                                item["title"] as String,
                                 style: TextStyle(
                                   fontSize: constraints.maxWidth * 0.045,
                                   fontWeight: FontWeight.w500,
@@ -125,7 +165,7 @@ class _CompanySettingsState extends State<CompanySettings> {
                 },
               );
             } else {
-              // تابلت/شاشة كبيرة -> Grid
+              // Tablet / large screen -> Grid
               return GridView.builder(
                 padding: EdgeInsets.all(constraints.maxWidth * 0.05),
                 itemCount: settings.length,
@@ -136,6 +176,7 @@ class _CompanySettingsState extends State<CompanySettings> {
                   childAspectRatio: 1,
                 ),
                 itemBuilder: (context, index) {
+                  final item = settings[index];
                   return Card(
                     elevation: 3,
                     shape: RoundedRectangleBorder(
@@ -143,7 +184,7 @@ class _CompanySettingsState extends State<CompanySettings> {
                     ),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
-                      onTap: () => _handleTap(settings[index]["title"]),
+                      onTap: () => _handleTap(item["title"] as String),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -151,14 +192,14 @@ class _CompanySettingsState extends State<CompanySettings> {
                             radius: constraints.maxWidth * 0.05,
                             backgroundColor: primaryColor.withOpacity(0.1),
                             child: Icon(
-                              settings[index]["icon"],
+                              item["icon"] as IconData,
                               color: primaryColor,
                               size: constraints.maxWidth * 0.06,
                             ),
                           ),
                           SizedBox(height: constraints.maxHeight * 0.01),
                           Text(
-                            settings[index]["title"],
+                            item["title"] as String,
                             style: TextStyle(
                               fontSize: constraints.maxWidth * 0.025,
                               fontWeight: FontWeight.w500,
@@ -181,48 +222,44 @@ class _CompanySettingsState extends State<CompanySettings> {
   void _handleTap(String title) {
     switch (title) {
       case "Profile":
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const OwnerProfile()),
-        );
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const OwnerProfile()));
         break;
+
       case "Change Password":
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const CompanyChangePassword()),
-        );
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const CompanyChangePassword()));
         break;
+
       case "Privacy Policy":
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const Company_Privacy_Policy()));
+        break;
+
+      case "Company Requests":
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const CompanyRequestsPage()));
+        break;
+
+      case "Company Notifications":
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const CompanyNotificationsPage()));
+        break;
+      case "Company Chats":
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const Company_Privacy_Policy()),
+          MaterialPageRoute(builder: (_) => const CompanyChatListPage()),
         );
         break;
-      case "Notification":
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const CompanyNotificationsPage()),
-        );
-        break;
+
+
       case "Log Out":
-      // 🔹 تجربة UI فقط: الانتقال لصفحة تسجيل الدخول بدون Firebase
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (context) => const LoginAndSignUp()),
-              (Route<dynamic> route) => false, // إزالة كل الصفحات السابقة
+          MaterialPageRoute(builder: (_) => const LoginAndSignUp()),
+              (route) => false,
         );
-
-        // 🔹 لو تريد استخدام Firebase Auth لاحقاً:
-        // await FirebaseAuth.instance.signOut();
-        // Navigator.pushAndRemoveUntil(
-        //   context,
-        //   MaterialPageRoute(builder: (context) => const LoginAndSignUp()),
-        //   (Route<dynamic> route) => false,
-        // );
-
         break;
-
-
     }
   }
 }

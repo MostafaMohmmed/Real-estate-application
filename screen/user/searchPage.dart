@@ -1,3 +1,4 @@
+// searchPage.dart
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -150,6 +151,7 @@ class _SearchEstimatedCostPageState extends State<SearchEstimatedCostPage> {
           }
 
           final all = (snap.data?.docs ?? []);
+          // فلترة نصية محلية
           final docs = all.where((d) => _matchQuery(d.data(), _q.text)).toList();
 
           DateTime dt(dynamic v) {
@@ -245,12 +247,14 @@ class _SearchEstimatedCostPageState extends State<SearchEstimatedCostPage> {
 
   // === فتح صفحة التأكيد مع companyId/propId من الـ collectionGroup ===
   void _openConfirmWithDoc(
-      BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) {
+      BuildContext context,
+      DocumentSnapshot<Map<String, dynamic>> doc,
+      ) {
     final d = doc.data() ?? {};
     final url = (d['imageUrl'] ?? '').toString();
     final bts = _bytes(d['imageBlob']);
 
-    // doc.parent.path = companies/{companyId}/properties
+    // parent.parent = companies/{companyId}
     final companyId = doc.reference.parent.parent!.id;
     final propId = doc.id;
 
@@ -271,9 +275,11 @@ class _SearchEstimatedCostPageState extends State<SearchEstimatedCostPage> {
     );
   }
 
-  // === فتح التفاصيل وتمرير المسار (اختياري مفيد للحفظ) ===
+  // === فتح التفاصيل وتمرير المسار (مهم للحفظ والإشعارات) ===
   void _openDetailsWithDoc(
-      BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) {
+      BuildContext context,
+      DocumentSnapshot<Map<String, dynamic>> doc,
+      ) {
     final d = doc.data() ?? {};
     final url = (d['imageUrl'] ?? '').toString();
     final bts = _bytes(d['imageBlob']);
@@ -297,8 +303,8 @@ class _SearchEstimatedCostPageState extends State<SearchEstimatedCostPage> {
           baths: (d['baths'] is num) ? (d['baths'] as num).toInt() : 0,
           ownerName: (d['ownerName'] ?? 'Company').toString(),
           ownerImageUrl: (d['ownerImageUrl'] ?? '').toString(),
-          ownerUid: companyId,                   // مفيد إن احتجته
-          propertyDocPath: path,                 // ممتاز للحفظ/التعقّب
+          ownerUid: companyId,           // مفيد لو احتجته
+          propertyDocPath: path,         // ✅ مهم جدًا
           amenities: (d['amenities'] is Iterable)
               ? (d['amenities'] as Iterable).map((e) => e.toString()).toList()
               : const [],
