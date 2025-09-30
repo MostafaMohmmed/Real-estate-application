@@ -3,14 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
-import 'confirmPage.dart';
 
 class Propertdetalis extends StatefulWidget {
   final String? imageUrl;
   final Uint8List? imageBytes;
 
   final String title;
-  final String price; // نص السعر (مثلاً "$120,000")
+  final String price; // مثلا "$120,000"
   final String location;
   final String type;
 
@@ -21,8 +20,8 @@ class Propertdetalis extends StatefulWidget {
   final String ownerName;
   final String? ownerImageUrl;
 
-  final String? ownerUid;
-  final String? propertyDocPath; // مثال: companies/{cid}/properties/{pid}
+  final String? ownerUid;            // = companyId
+  final String? propertyDocPath;     // companies/{cid}/properties/{pid}
 
   final List<String> amenities;
   final List<String> interior;
@@ -56,7 +55,6 @@ class _PropertdetalisState extends State<Propertdetalis> {
   bool visibleAmenities = false;
   bool visibleInteriorDetails = false;
   bool visibleConstructionDetails = false;
-  bool visibleLocationMapDerails = false;
 
   String? _ownerImgResolved;
   bool _loadingOwnerImg = false;
@@ -79,17 +77,24 @@ class _PropertdetalisState extends State<Propertdetalis> {
     _checkIfAlreadySaved();
   }
 
+  // ======== helpers: owner image / saved ========
   void _prefetchOwnerImageIfNeeded() async {
     if ((widget.ownerImageUrl == null || widget.ownerImageUrl!.isEmpty) &&
         (widget.ownerUid != null && widget.ownerUid!.isNotEmpty)) {
       try {
         setState(() => _loadingOwnerImg = true);
-        final doc =
-        await FirebaseFirestore.instance.collection('companies').doc(widget.ownerUid!).get();
+        final doc = await FirebaseFirestore.instance
+            .collection('companies')
+            .doc(widget.ownerUid!)
+            .get();
         if (doc.exists) {
           final d = doc.data() ?? {};
-          final candidate =
-          (d['photoURL'] ?? d['logoUrl'] ?? d['avatar'] ?? d['ownerImageUrl'] ?? '').toString();
+          final candidate = (d['photoURL'] ??
+              d['logoUrl'] ??
+              d['avatar'] ??
+              d['ownerImageUrl'] ??
+              '')
+              .toString();
           if (candidate.isNotEmpty) setState(() => _ownerImgResolved = candidate);
         }
       } catch (_) {} finally {
@@ -103,11 +108,13 @@ class _PropertdetalisState extends State<Propertdetalis> {
     if (user == null) return;
 
     try {
-      final col = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('saved');
+      final col = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('saved');
 
-      if (widget.propertyDocPath != null && widget.propertyDocPath!.isNotEmpty) {
+      if ((widget.propertyDocPath ?? '').isNotEmpty) {
         final propId = widget.propertyDocPath!.split('/').last;
-
         final fixedDoc = await col.doc(propId).get();
         if (fixedDoc.exists) {
           setState(() {
@@ -116,9 +123,10 @@ class _PropertdetalisState extends State<Propertdetalis> {
           });
           return;
         }
-
-        final q =
-        await col.where('propertyRef', isEqualTo: widget.propertyDocPath).limit(1).get();
+        final q = await col
+            .where('propertyRef', isEqualTo: widget.propertyDocPath)
+            .limit(1)
+            .get();
         if (q.docs.isNotEmpty) {
           setState(() {
             _isSaved = true;
@@ -151,7 +159,10 @@ class _PropertdetalisState extends State<Propertdetalis> {
     if (_busy) return;
     setState(() => _busy = true);
 
-    final col = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('saved');
+    final col = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('saved');
 
     try {
       if (_isSaved && _savedDocId != null) {
@@ -175,8 +186,9 @@ class _PropertdetalisState extends State<Propertdetalis> {
           'imageUrl': widget.imageUrl ?? '',
           if (widget.imageBytes != null) 'imageBlob': Blob(widget.imageBytes!),
           'ownerName': widget.ownerName,
-          'ownerImageUrl':
-          (widget.ownerImageUrl?.isNotEmpty == true) ? widget.ownerImageUrl : (_ownerImgResolved ?? ''),
+          'ownerImageUrl': (widget.ownerImageUrl?.isNotEmpty == true)
+              ? widget.ownerImageUrl
+              : (_ownerImgResolved ?? ''),
           'ownerUid': widget.ownerUid ?? '',
           'amenities': widget.amenities,
           'interior': widget.interior,
@@ -185,7 +197,7 @@ class _PropertdetalisState extends State<Propertdetalis> {
           'createdAt': FieldValue.serverTimestamp(),
         };
 
-        if (widget.propertyDocPath != null && widget.propertyDocPath!.isNotEmpty) {
+        if ((widget.propertyDocPath ?? '').isNotEmpty) {
           final propId = widget.propertyDocPath!.split('/').last;
           await col.doc(propId).set(payload, SetOptions(merge: true));
           _savedDocId = propId;
@@ -196,11 +208,194 @@ class _PropertdetalisState extends State<Propertdetalis> {
         }
 
         setState(() => _isSaved = true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved ✔')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Saved ✔')));
       }
     } catch (e) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error while saving: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // ======== NEW: طلب الشراء مباشرة مع تأكيد و Note ========
+  Future<void> _confirmAndSubmitRequest() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Please sign in first.')));
+      return;
+    }
+
+    // احصل على companyId + propId من المسار
+    String? companyId, propId;
+    if ((widget.propertyDocPath ?? '').isNotEmpty) {
+      final parts = widget.propertyDocPath!.split('/'); // companies/{cid}/properties/{pid}
+      if (parts.length >= 4) {
+        companyId = parts[1];
+        propId = parts[3];
+      }
+    } else {
+      companyId = widget.ownerUid ?? '';
+    }
+    if (companyId == null || companyId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Company not found for this property.')),
+      );
+      return;
+    }
+
+    // جلب اسم ورقم المستخدم تلقائيًا
+    String userName = user.displayName ?? '';
+    String userPhone = user.phoneNumber ?? '';
+    try {
+      final uSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final ud = uSnap.data() ?? {};
+      if ((ud['fullName'] ?? '').toString().isNotEmpty) {
+        userName = (ud['fullName'] ?? '').toString();
+      }
+      // جرّب أكثر من مفتاح: phone / phoneNumber / mobile
+      final ph = (ud['phone'] ?? ud['phoneNumber'] ?? ud['mobile'] ?? '')
+          .toString();
+      if (ph.isNotEmpty) userPhone = ph;
+    } catch (_) {}
+
+    final noteCtrl = TextEditingController();
+
+    // Dialog التأكيد (مع Note اختياري)
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Send request?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // نعرض الاسم + الجوال تحت بعض
+              Text(userName.isEmpty ? 'Name: —' : 'Name: $userName'),
+              Text(userPhone.isEmpty ? 'Phone: —' : 'Phone: $userPhone'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Note (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (ok != true) return; // ألغى
+
+    if (_busy) return;
+    setState(() => _busy = true);
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final now = FieldValue.serverTimestamp();
+
+      // نحاول تحويل السعر إلى قيمة رقمية
+      final priceValue =
+      num.tryParse(widget.price.replaceAll(RegExp(r'[^0-9.]'), ''));
+
+      // id موحّد للطلب
+      final reqRef = db.collection('purchaseRequests').doc();
+      final reqId = reqRef.id;
+
+      final centralPayload = {
+        'requestId': reqId,
+        'status': 'pending',
+        'createdAt': now,
+        'updatedAt': now,
+
+        // أطراف الطلب
+        'userUid': user.uid,
+        'companyId': companyId,
+
+        // معلومات المستخدم (حتى تظهر للشركة بسهولة)
+        'userName': userName,
+        'userPhone': userPhone,
+
+        // معلومات العقار
+        'propId': propId ?? '',
+        'title': widget.title,
+        'location': widget.location,
+        'priceLabel': widget.price,
+        'priceValue': priceValue,
+
+        // note
+        'note': noteCtrl.text.trim(),
+      };
+
+      // 1) الجدول المركزي
+      await reqRef.set(centralPayload, SetOptions(merge: true));
+
+      // 2) نسخة الشركة
+      await db
+          .collection('companies')
+          .doc(companyId)
+          .collection('purchaseRequests')
+          .doc(reqId)
+          .set({
+        ...centralPayload,
+        'buyerUid': user.uid,
+        'buyerName': userName,
+        'buyerPhone': userPhone,
+      }, SetOptions(merge: true));
+
+      // 3) نسخة المستخدم (للسجل/التتبع)
+      await db
+          .collection('users')
+          .doc(user.uid)
+          .collection('purchaseRequests')
+          .doc(reqId)
+          .set(centralPayload, SetOptions(merge: true));
+
+      // 4) إشعار للشركة
+      await db
+          .collection('companies')
+          .doc(companyId)
+          .collection('notifications')
+          .add({
+        'title': 'New purchase request',
+        'body':
+        '$userName (${userPhone.isEmpty ? 'no phone' : userPhone}) requested this property.',
+        'type': 'Deals',
+        'isRead': false,
+        'createdAt': now,
+        'reqId': reqId,
+        'propId': propId ?? '',
+        'buyerUid': user.uid,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request submitted ✔')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to submit request: $e')),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -226,13 +421,17 @@ class _PropertdetalisState extends State<Propertdetalis> {
         return Image.memory(widget.imageBytes!, fit: BoxFit.cover);
       }
       if ((widget.imageUrl ?? '').isNotEmpty) {
-        return Image.network(widget.imageUrl!, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(color: Colors.grey[300]));
+        return Image.network(
+          widget.imageUrl!,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(color: Colors.grey[300]),
+        );
       }
       return Container(color: Colors.grey[300]);
     }
 
-    final ownerImgFinal = (widget.ownerImageUrl != null && widget.ownerImageUrl!.isNotEmpty)
+    final ownerImgFinal =
+    (widget.ownerImageUrl != null && widget.ownerImageUrl!.isNotEmpty)
         ? widget.ownerImageUrl
         : _ownerImgResolved;
 
@@ -253,9 +452,14 @@ class _PropertdetalisState extends State<Propertdetalis> {
             onPressed: _toggleSave,
             icon: _busy
                 ? const SizedBox(
-                width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border,
-                color: const Color(0xFF4A43EC)),
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+                : Icon(
+              _isSaved ? Icons.bookmark : Icons.bookmark_border,
+              color: const Color(0xFF4A43EC),
+            ),
           ),
         ],
       ),
@@ -299,26 +503,32 @@ class _PropertdetalisState extends State<Propertdetalis> {
 
           Row(
             children: [
-              const Icon(Icons.location_on_outlined, size: 18, color: Colors.black54),
+              const Icon(Icons.location_on_outlined,
+                  size: 18, color: Colors.black54),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   widget.location,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.black54, fontSize: (13 * scale).clamp(11, 16)),
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontSize: (13 * scale).clamp(11, 16),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  widget.type,
-                  style: const TextStyle(
+                child: const Text(
+                  // نوع العقار
+                  'Type',
+                  style: TextStyle(
                     color: Colors.deepOrange,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -346,8 +556,9 @@ class _PropertdetalisState extends State<Propertdetalis> {
             leading: CircleAvatar(
               radius: 22 * scale,
               backgroundColor: Colors.grey[300],
-              backgroundImage:
-              (ownerImgFinal != null && ownerImgFinal.isNotEmpty) ? NetworkImage(ownerImgFinal!) : null,
+              backgroundImage: (ownerImgFinal != null && ownerImgFinal.isNotEmpty)
+                  ? NetworkImage(ownerImgFinal!)
+                  : null,
               child: (ownerImgFinal == null || ownerImgFinal.isEmpty)
                   ? (_loadingOwnerImg
                   ? const CircularProgressIndicator(strokeWidth: 2)
@@ -356,10 +567,15 @@ class _PropertdetalisState extends State<Propertdetalis> {
             ),
             title: Text(
               widget.ownerName,
-              style: TextStyle(fontSize: (15 * scale).clamp(12, 18), fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: (15 * scale).clamp(12, 18),
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            subtitle: Text('Home Owner/Broker',
-                style: TextStyle(fontSize: (12 * scale).clamp(10, 16))),
+            subtitle: Text(
+              'Home Owner/Broker',
+              style: TextStyle(fontSize: (12 * scale).clamp(10, 16)),
+            ),
           ),
 
           SizedBox(height: 6 * scale),
@@ -371,7 +587,8 @@ class _PropertdetalisState extends State<Propertdetalis> {
             itemSize: (20 * scale).clamp(14, 24),
             itemCount: 5,
             itemPadding: EdgeInsets.symmetric(horizontal: 4 * scale),
-            itemBuilder: (context, _) => const Icon(Icons.star, color: Colors.amber),
+            itemBuilder: (context, _) =>
+            const Icon(Icons.star, color: Colors.amber),
             onRatingUpdate: (v) {},
           ),
 
@@ -385,34 +602,44 @@ class _PropertdetalisState extends State<Propertdetalis> {
             style: sectionTitleStyle,
           ),
           if (visibleAmenities)
-            _sectionList(widget.amenities.isNotEmpty ? widget.amenities : const ['No data'],
-                sectionTextStyle),
+            _sectionList(
+              widget.amenities.isNotEmpty ? widget.amenities : const ['No data'],
+              sectionTextStyle,
+            ),
 
           _sectionHeader(
             title: 'Interior Details',
             isExpanded: visibleInteriorDetails,
-            onTap: () => setState(() => visibleInteriorDetails = !visibleInteriorDetails),
+            onTap: () =>
+                setState(() => visibleInteriorDetails = !visibleInteriorDetails),
             bg: Colors.grey.shade100,
             style: sectionTitleStyle,
           ),
           if (visibleInteriorDetails)
-            _sectionList(widget.interior.isNotEmpty ? widget.interior : const ['No data'],
-                sectionTextStyle),
+            _sectionList(
+              widget.interior.isNotEmpty ? widget.interior : const ['No data'],
+              sectionTextStyle,
+            ),
 
           _sectionHeader(
             title: 'Construction Details',
             isExpanded: visibleConstructionDetails,
-            onTap: () => setState(() => visibleConstructionDetails = !visibleConstructionDetails),
+            onTap: () => setState(
+                    () => visibleConstructionDetails = !visibleConstructionDetails),
             bg: Colors.grey.shade100,
             style: sectionTitleStyle,
           ),
           if (visibleConstructionDetails)
-            _sectionList(widget.construction.isNotEmpty ? widget.construction : const ['No data'],
-                sectionTextStyle),
+            _sectionList(
+              widget.construction.isNotEmpty
+                  ? widget.construction
+                  : const ['No data'],
+              sectionTextStyle,
+            ),
 
           SizedBox(height: 20 * scale),
 
-          // تبويبات مكان الخريطة (placeholder)
+          // التبويبات/الخريطة (placeholder)
           SizedBox(
             height: 40 * scale,
             child: ListView.separated(
@@ -425,12 +652,14 @@ class _PropertdetalisState extends State<Propertdetalis> {
                   onTap: () {
                     setState(() {
                       currentIndex = index;
-                      changeimg =
-                      index == 0 ? locationimg : (index == 1 ? hospital : schoolimg);
+                      changeimg = index == 0
+                          ? locationimg
+                          : (index == 1 ? hospital : schoolimg);
                     });
                   },
                   child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 6 * scale),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: 12 * scale, vertical: 6 * scale),
                     decoration: BoxDecoration(
                       color: isSelected ? Colors.deepOrange : Colors.white,
                       borderRadius: BorderRadius.circular(8),
@@ -452,54 +681,37 @@ class _PropertdetalisState extends State<Propertdetalis> {
           SizedBox(height: 14 * scale),
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child:
-            AspectRatio(aspectRatio: 16 / 9, child: Image.asset(changeimg, fit: BoxFit.cover)),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Image.asset(changeimg, fit: BoxFit.cover),
+            ),
           ),
 
           SizedBox(height: 20 * scale),
 
-          // Save → ConfirmPage
+          // ===== NEW: زر الحفظ الذي يرسل الطلب مباشرة مع تأكيد =====
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4A43EC),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               minimumSize: Size(double.infinity, (50 * scale).clamp(42, 60)),
             ),
-            onPressed: () {
-              String? companyId, propId;
-              if ((widget.propertyDocPath ?? '').isNotEmpty) {
-                final parts = widget.propertyDocPath!.split('/'); // companies/{cid}/properties/{pid}
-                if (parts.length >= 4) {
-                  companyId = parts[1];
-                  propId = parts[3];
-                }
-              }
-
-              // استخراج قيمة رقمية من نص السعر (اختياري)
-              final num? priceValue =
-              num.tryParse(widget.price.replaceAll(RegExp(r'[^0-9.]'), ''));
-
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ConfirmPage(
-                    imageUrl: widget.imageUrl,
-                    imageBytes: widget.imageBytes,
-                    title: widget.title,
-                    location: widget.location,
-                    priceLabel: widget.price, // النص كما هو
-                    priceValue: priceValue,   // قد تكون null
-                    companyId: companyId,
-                    propId: propId,
-                  ),
-                ),
-              );
-            },
-            child: Text('Save',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: (18 * scale).clamp(14, 20),
-                    fontWeight: FontWeight.w700)),
+            onPressed: _busy ? null : _confirmAndSubmitRequest,
+            child: _busy
+                ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+                : Text(
+              'Save',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: (18 * scale).clamp(14, 20),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           SizedBox(height: 20 * scale),
         ],
@@ -525,7 +737,8 @@ class _PropertdetalisState extends State<Propertdetalis> {
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+      decoration:
+      BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
       child: InkWell(
         onTap: onTap,
         child: Row(

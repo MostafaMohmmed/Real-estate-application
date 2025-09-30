@@ -370,19 +370,6 @@ class _ResultCard extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: onEstimated,
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFF5B5AF0)),
-                  foregroundColor: const Color(0xFF5B5AF0),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('Estimated Cost / Request'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
                 onPressed: onDetails,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),

@@ -27,26 +27,28 @@ class _CompanyRequestDetailsState extends State<CompanyRequestDetails> {
     setState(() => _busy = true);
 
     try {
-      final reqId    = (d['requestId'] ?? widget.req.id).toString();
-      final buyerUid = (d['buyerUid'] ?? d['userUid'] ?? '').toString();
-      final propId   = (d['propId'] ?? '').toString();
-      final title    = (d['title'] ?? '').toString();
+      final reqId       = (d['requestId'] ?? widget.req.id).toString();
+      final buyerUid    = (d['buyerUid'] ?? d['userUid'] ?? '').toString();
+      final propId      = (d['propId'] ?? '').toString();
+      final title       = (d['title'] ?? '').toString();
+      final buyerName   = (d['buyerName']  ?? d['userName']  ?? '').toString();
+      final buyerPhone  = (d['buyerPhone'] ?? d['userPhone'] ?? '').toString();
 
       final db  = FirebaseFirestore.instance;
       final now = FieldValue.serverTimestamp();
 
-      // 1) تحديث نسخة الشركة (مضمون الصلاحيات)
+      // 1) حدّث نسخة الشركة (مضمون الصلاحيات)
       await widget.req.reference.set({
         'status': desiredStatus,
         'updatedAt': now,
       }, SetOptions(merge: true));
 
-      // 2) تحديث الجدول المركزي (اختياري؛ نتجاهل أي permission-denied)
+      // 2) حدّث الجدول المركزي (اختياري؛ تجاهل أي permission-denied)
       try {
         await db.collection('purchaseRequests').doc(reqId).set({
           'status': desiredStatus,
           'updatedAt': now,
-          'companyId': _companyId, // يجعل القواعد أسهل لاحقًا
+          'companyId': _companyId, // يُسهّل القواعد لاحقاً
         }, SetOptions(merge: true));
       } catch (e) {
         debugPrint('central set ignored: $e');
@@ -54,18 +56,36 @@ class _CompanyRequestDetailsState extends State<CompanyRequestDetails> {
 
       // 3) إن كانت Accepted: أنشئ/استرجع الشات وافتحه
       if (desiredStatus == 'accepted' && buyerUid.isNotEmpty) {
+        // معلومات الشركة (اختياري لكن مفضّل لعرضها عند المستخدم)
+        String companyName = '', companyPhone = '';
+        try {
+          final c = await db.collection('companies').doc(_companyId).get();
+          if (c.exists) {
+            final cd = c.data() ?? {};
+            companyName  = (cd['fullName'] ?? cd['companyName'] ?? '').toString();
+            companyPhone = (cd['phone'] ?? cd['phoneNumber'] ?? '').toString();
+          }
+        } catch (_) {}
+
         final welcome =
             'Hello! Your request for "$title" was accepted. You can chat with us here for the next steps.';
 
         final chatId = await ChatService.getOrCreateChat(
           userUid: buyerUid,
           companyUid: _companyId,
+
+          // مهم: نخزن اسم/هاتف الطرفين داخل الشات لعرضهما بدون قراءات إضافية
+          userName:   buyerName,
+          userPhone:  buyerPhone,
+          companyName:  companyName,
+          companyPhone: companyPhone,
+
           initialMessage: welcome,
           meta: {
             'reqId': reqId,
             'propId': propId,
             'title': title,
-            'acceptedAt': now,
+            'acceptedAt': FieldValue.serverTimestamp(),
           },
         );
 
@@ -94,16 +114,34 @@ class _CompanyRequestDetailsState extends State<CompanyRequestDetails> {
 
   Future<void> _openChat(Map<String, dynamic> d) async {
     // يُستخدم عندما تكون الحالة already accepted لفتح الشات مباشرة
-    final buyerUid = (d['buyerUid'] ?? d['userUid'] ?? '').toString();
+    final buyerUid    = (d['buyerUid'] ?? d['userUid'] ?? '').toString();
+    final buyerName   = (d['buyerName']  ?? d['userName']  ?? '').toString();
+    final buyerPhone  = (d['buyerPhone'] ?? d['userPhone'] ?? '').toString();
     if (buyerUid.isEmpty) return;
 
     setState(() => _busy = true);
     try {
+      String companyName = '', companyPhone = '';
+      try {
+        final c = await FirebaseFirestore.instance
+            .collection('companies').doc(_companyId).get();
+        if (c.exists) {
+          final cd = c.data() ?? {};
+          companyName  = (cd['fullName'] ?? cd['companyName'] ?? '').toString();
+          companyPhone = (cd['phone'] ?? cd['phoneNumber'] ?? '').toString();
+        }
+      } catch (_) {}
+
       final chatId = await ChatService.getOrCreateChat(
         userUid: buyerUid,
         companyUid: _companyId,
-        // بدون رسالة ترحيب؛ فقط تأكد من وجود الشات
+        userName:   buyerName,
+        userPhone:  buyerPhone,
+        companyName:  companyName,
+        companyPhone: companyPhone,
+        // بدون رسالة ترحيب هنا؛ فقط تأكد من وجود الشات
       );
+
       if (!mounted) return;
       Navigator.push(
         context,
@@ -164,7 +202,6 @@ class _CompanyRequestDetailsState extends State<CompanyRequestDetails> {
               ],
               const SizedBox(height: 20),
 
-              // أزرار الحالة
               if (isPending) Row(
                 children: [
                   Expanded(
@@ -191,7 +228,6 @@ class _CompanyRequestDetailsState extends State<CompanyRequestDetails> {
                 ],
               ),
 
-              // إن كانت مقبولة مسبقًا: زر فتح الشات مباشرة
               if (!isPending && isAccepted) ...[
                 const SizedBox(height: 8),
                 ElevatedButton.icon(

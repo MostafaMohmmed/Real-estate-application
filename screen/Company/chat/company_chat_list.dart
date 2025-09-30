@@ -1,10 +1,12 @@
+// lib/screen/Company/chat/company_chat_list_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'chat_screen.dart';
 
-class ChatListPage extends StatelessWidget {
-  const ChatListPage({super.key});
+import '../../user/chat/chat_screen.dart';
+
+class CompanyChatListPage extends StatelessWidget {
+  const CompanyChatListPage({super.key});
 
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
@@ -12,13 +14,16 @@ class ChatListPage extends StatelessWidget {
       .collection('chats')
       .where('members', arrayContains: _uid);
 
-  static Map<String, Map<String, String>> _profileCache = {};
+  // كاش بسيط لنتائج البروفايل حسب uid
+  static final Map<String, Map<String, String>> _profileCache = {};
 
   Future<Map<String, String>> _fallbackLoadProfile(String otherId) async {
     if (otherId.isEmpty) return const {'name': '—', 'phone': '—'};
     if (_profileCache[otherId] != null) return _profileCache[otherId]!;
 
     final db = FirebaseFirestore.instance;
+
+    // الشركات ترى المستخدم، فنجرب users أولاً ثم companies احتياطًا
     var snap = await db.collection('users').doc(otherId).get();
     if (!snap.exists) snap = await db.collection('companies').doc(otherId).get();
 
@@ -44,10 +49,12 @@ class ChatListPage extends StatelessWidget {
           final docs = snap.data!.docs;
           if (docs.isEmpty) return const Center(child: Text('No chats yet'));
 
-          final sorted = docs.toList()..sort((a, b) {
-            final am = _map(a.data()); final bm = _map(b.data());
-            return _ts(bm['lastAt']).compareTo(_ts(am['lastAt']));
-          });
+          final sorted = docs.toList()
+            ..sort((a, b) {
+              final am = _map(a.data());
+              final bm = _map(b.data());
+              return _ts(bm['lastAt']).compareTo(_ts(am['lastAt']));
+            });
 
           return ListView.separated(
             itemCount: sorted.length,
@@ -61,26 +68,26 @@ class ChatListPage extends StatelessWidget {
               final lastAt = _ts(d['lastAt']);
               final lastMsg = (d['lastMessage'] ?? '').toString();
 
-              // نحاول من الميتاداتا أولاً
+              // المعنى هنا: الشركة تشاهد المستخدم.
+              // إن كانت الميتاداتا موجودة نعتمد عليها أولاً:
               String title = '—', sub = '—';
               final metaUserUid    = (meta['userUid'] ?? '').toString();
               final metaCompanyUid = (meta['companyUid'] ?? '').toString();
 
               if (metaUserUid.isNotEmpty && metaCompanyUid.isNotEmpty) {
-                final iAmUser = (_uid == metaUserUid);
-                if (iAmUser) {
-                  // المستخدم يرى الشركة
-                  title = (meta['companyName'] ?? '—').toString();
-                  sub   = (meta['companyPhone'] ?? '—').toString();
-                } else {
-                  // الشركة ترى المستخدم (في هذه الصفحة لن يحدث عادة، لكنها آمنة)
+                final iAmCompany = (_uid == metaCompanyUid);
+                if (iAmCompany) {
+                  // الشركة ترى بيانات المستخدم
                   title = (meta['userName'] ?? '—').toString();
                   sub   = (meta['userPhone'] ?? '—').toString();
+                } else {
+                  // لو فتحها المستخدم بالخطأ، تبقى آمنة
+                  title = (meta['companyName'] ?? '—').toString();
+                  sub   = (meta['companyPhone'] ?? '—').toString();
                 }
               }
 
               return FutureBuilder<Map<String, String>>(
-                // لو ما توفر من الميتاداتا نجيب من Firestore
                 future: (title != '—' || sub != '—')
                     ? Future.value({'name': title, 'phone': sub})
                     : _fallbackLoadProfile(otherId),

@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../login_signup_app/login_in_and_sign_up.dart';
-import '../chat/company_chat_list_page.dart';
+import '../../user/chat/chat_list_page.dart';
+import '../chat/company_chat_list.dart';
 import '../company_home_page.dart';
 import 'company_change_password.dart';
 import 'company_notificatin.dart';
@@ -53,15 +54,15 @@ class _CompanySettingsState extends State<CompanySettings> {
     final settings = [
       ..._baseSettings,
       if (_isCompany) {
-        "title": "Company Requests",
+        "title": "Requests",
         "icon": Icons.shopping_bag_outlined
       },
       if (_isCompany) {
-        "title": "Company Notifications",
+        "title": "Notifications",
         "icon": Icons.notifications_active_outlined
       },
       // داخل settings list عند الشركة
-      if (_isCompany) {"title": "Company Chats", "icon": Icons.forum_outlined},
+      if (_isCompany) {"title": "Chats", "icon": Icons.forum_outlined},
 
       {"title": "Log Out", "icon": Icons.logout}, // ⬅️ آخر عنصر دائمًا
     ];
@@ -236,16 +237,16 @@ class _CompanySettingsState extends State<CompanySettings> {
             MaterialPageRoute(builder: (_) => const Company_Privacy_Policy()));
         break;
 
-      case "Company Requests":
+      case "Requests":
         Navigator.push(context,
             MaterialPageRoute(builder: (_) => const CompanyRequestsPage()));
         break;
 
-      case "Company Notifications":
+      case "Notifications":
         Navigator.push(context,
             MaterialPageRoute(builder: (_) => const CompanyNotificationsPage()));
         break;
-      case "Company Chats":
+      case "Chats":
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const CompanyChatListPage()),
