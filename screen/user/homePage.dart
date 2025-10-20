@@ -1,8 +1,8 @@
 // homePage.dart
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:final_iug_2025/screen/user/searchPage.dart';
 import 'package:final_iug_2025/screen/user/see_all_properties_page.dart';
-
 import 'AllPropertyHomePage.dart';
 import 'FeaturedPropertyhomepage.dart';
 import 'settings/settings.dart';
@@ -10,7 +10,7 @@ import 'settings/settings.dart';
 // NEW: إضافات
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:final_iug_2025/services/foreground_notifier.dart';
-import 'package:final_iug_2025/services/fcm_service.dart' as fcm; // تأكد من المسار
+import 'package:final_iug_2025/services/fcm_service.dart' as fcm;
 
 class homePage extends StatefulWidget {
   const homePage({super.key});
@@ -23,28 +23,40 @@ class _homePageState extends State<homePage> {
   int currentIndex = 0;
   final searchController = TextEditingController();
 
-  // NEW: عشان ما نكرر التهيئة
+  // NEW: ScrollController
+  final ScrollController _scrollController = ScrollController();
+
   static bool _didInitFCM = false;
 
   @override
   void initState() {
     super.initState();
-    _initFcmOnce(); // ننادي دالة async منفصلة
+    _initFcmOnce();
   }
 
   Future<void> _initFcmOnce() async {
     if (_didInitFCM) return;
-
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
-      // تشغيل مستمع الإشعارات داخل التطبيق (التوست المحلي)
       ForegroundNotifier.instance.start(uid);
-
-      // حفظ/تحديث FCM token للمستخدم
       await fcm.initFcmForUser();
     }
-
     _didInitFCM = true;
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // دالة السكرول لأعلى
+  void _scrollToTop() {
+    _scrollController.animateTo(
+      0.0,
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
@@ -53,7 +65,7 @@ class _homePageState extends State<homePage> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
-        onPressed: () {},
+        onPressed: _scrollToTop, // هنا نخليها تستدعي الدالة
         backgroundColor: const Color(0xff22577A),
         child: const Icon(Icons.grid_view, color: Colors.white),
       ),
@@ -84,7 +96,7 @@ class _homePageState extends State<homePage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Hello!',
+            Text('Hello!'.tr(),
                 style: TextStyle(
                     color: Colors.black,
                     fontWeight: FontWeight.bold,
@@ -99,11 +111,12 @@ class _homePageState extends State<homePage> {
         actions: [
           const Icon(Icons.bookmark_sharp, color: Colors.blue),
           SizedBox(width: size.width * 0.04),
-          const CircleAvatar(backgroundImage: AssetImage('images/personal.png')),
+          const CircleAvatar(backgroundImage: AssetImage('assets/images/personal.png')),
           SizedBox(width: size.width * 0.02),
         ],
       ),
       body: SingleChildScrollView(
+        controller: _scrollController, // هنا أضفنا الكنترولر
         child: Column(
           children: [
             // شريط البحث + زر Filters
@@ -147,7 +160,7 @@ class _homePageState extends State<homePage> {
                       ),
                       child: Row(
                         children: [
-                          Image.asset('images/filter.png', width: size.width * 0.05),
+                          Image.asset('assets/images/filter.png', width: size.width * 0.05),
                           SizedBox(width: size.width * 0.01),
                           Text('Filters',
                               style: TextStyle(
@@ -213,7 +226,7 @@ class _homePageState extends State<homePage> {
                     },
                     icon: const Icon(Icons.arrow_circle_right_rounded,
                         color: Colors.green),
-                    label: const Text('See All',
+                    label: Text('See All'.tr(),
                         style: TextStyle(color: Colors.green)),
                   ),
                 ],

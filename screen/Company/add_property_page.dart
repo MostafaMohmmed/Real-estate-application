@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'settings/map_picker_page.dart'; // عدّل المسار لو مختلف لديك
+import 'package:final_iug_2025/services/plan_service.dart';
+import 'package:final_iug_2025/screen/Company/paywall/paywall_page.dart';
+
 class AddPropertyPage extends StatefulWidget {
   const AddPropertyPage({super.key});
 
@@ -20,28 +24,30 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
   final formKey = GlobalKey<FormState>();
   final titleController = TextEditingController();
   final descController = TextEditingController();
-  final locationController = TextEditingController();
+  final addressController = TextEditingController();
   final priceController = TextEditingController();
 
-  // حقول إضافية
-  final areaSqftController = TextEditingController(); // مساحة
-  final bedsController = TextEditingController();     // غرف
-  final bathsController = TextEditingController();    // حمّامات
+  final areaSqftController = TextEditingController();
+  final bedsController = TextEditingController();
+  final bathsController = TextEditingController();
 
-  // مصفوفات (أدخلها بفواصل)
-  final amenitiesController   = TextEditingController();
-  final interiorController    = TextEditingController();
-  final constructionController= TextEditingController();
+  final amenitiesController = TextEditingController();
+  final interiorController = TextEditingController();
+  final constructionController = TextEditingController();
 
   String selectedType = "House";
   Uint8List? _imageBytes;
   bool _saving = false;
 
+  double? _lat;
+  double? _lng;
+  String? _pickedAddress;
+
   @override
   void dispose() {
     titleController.dispose();
     descController.dispose();
-    locationController.dispose();
+    addressController.dispose();
     priceController.dispose();
     areaSqftController.dispose();
     bedsController.dispose();
@@ -97,6 +103,22 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
     return raw.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
   }
 
+  Future<void> _openMapPicker() async {
+    final res = await Navigator.push<MapPickResult?>(
+      context,
+      MaterialPageRoute(builder: (_) => const MapPickerPage()),
+    );
+    if (res == null) return;
+    setState(() {
+      _lat = res.lat;
+      _lng = res.lng;
+      _pickedAddress = res.address;
+      if (res.address.trim().isNotEmpty) {
+        addressController.text = res.address;
+      }
+    });
+  }
+
   Future<void> _save() async {
     if (!formKey.currentState!.validate()) return;
     if (_imageBytes == null) {
@@ -114,23 +136,43 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
       return;
     }
 
+    setState(() => _saving = true);
+
+    // ✅ فحص الخطة قبل الحفظ
+    final planService = PlanService();
+    final plan = await planService.getCompanyPlan(user.uid) ?? {};
+    if (!planService.canPostNow(plan)) {
+      final ok = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => const PaywallPage()),
+      );
+      if (ok == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Your plan request is pending.')),
+        );
+      }
+      setState(() => _saving = false);
+      return;
+    }
+
+    // التحقق من السعر
     final price = double.tryParse(priceController.text.trim());
     if (price == null || price.isNaN || price.isNegative) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Price must be a valid non-negative number.')),
       );
+      setState(() => _saving = false);
       return;
     }
 
     final areaSqft = double.tryParse(areaSqftController.text.trim()) ?? 0;
-    final beds = int.tryParse(bedsController.text.trim()) ?? 0;
-    final baths = int.tryParse(bathsController.text.trim()) ?? 0;
+    final beds     = int.tryParse(bedsController.text.trim()) ?? 0;
+    final baths    = int.tryParse(bathsController.text.trim()) ?? 0;
 
     final amenities   = _splitToList(amenitiesController.text);
     final interior    = _splitToList(interiorController.text);
     final construction= _splitToList(constructionController.text);
 
-    setState(() => _saving = true);
     try {
       final compressed = await _compressToUnder900KB(_imageBytes!);
       if (compressed == null) {
@@ -142,45 +184,47 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
       }
       final blob = Blob(compressed);
 
-      final col = _db
-          .collection('companies')
-          .doc(user.uid)
-          .collection('properties');
+      final col = _db.collection('companies').doc(user.uid).collection('properties');
 
-      await col.add({
+      final data = <String, dynamic>{
         'title': titleController.text.trim(),
         'description': descController.text.trim(),
-        'location': locationController.text.trim(),
+        'address': addressController.text.trim(),
+        'location': addressController.text.trim(),
         'price': price,
         'type': selectedType,
         'imageBlob': blob,
         'createdAt': FieldValue.serverTimestamp(),
-
-        // مالك
-        'ownerUid'   : user.uid,
-        'ownerName'  : user.displayName ?? 'Company',
-        'ownerEmail' : (user.email ?? '').toLowerCase(),
+        'ownerUid': user.uid,
+        'ownerName': user.displayName ?? 'Company',
+        'ownerEmail': (user.email ?? '').toLowerCase(),
         'ownerImageUrl': user.photoURL ?? '',
-
-        // أبعاد
         'areaSqft': areaSqft,
-        'beds'    : beds,
-        'baths'   : baths,
-
-        // أقسام
-        'amenities'   : amenities,
-        'interior'    : interior,
+        'beds': beds,
+        'baths': baths,
+        'amenities': amenities,
+        'interior': interior,
         'construction': construction,
-      });
+      };
+
+      if (_lat != null && _lng != null) {
+        data['geo'] = GeoPoint(_lat!, _lng!);
+      }
+
+      await col.add(data);
+
+      // ✅ خصم خانة من الرصيد
+      await planService.consumeOneSlot(user.uid);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Property added successfully')),
       );
 
+      // إعادة الضبط
       titleController.clear();
       descController.clear();
-      locationController.clear();
+      addressController.clear();
       priceController.clear();
       areaSqftController.clear();
       bedsController.clear();
@@ -193,6 +237,9 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
         selectedType = "House";
         _imageBytes = null;
         _saving = false;
+        _lat = null;
+        _lng = null;
+        _pickedAddress = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -250,11 +297,33 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
                 decoration: const InputDecoration(labelText: "Description"),
                 validator: (v) => (v == null || v.trim().isEmpty) ? "Required" : null,
               ),
-              TextFormField(
-                controller: locationController,
-                decoration: const InputDecoration(labelText: "Location"),
-                validator: (v) => (v == null || v.trim().isEmpty) ? "Required" : null,
+
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: addressController,
+                      decoration: const InputDecoration(labelText: "Address"),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? "Required" : null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: _openMapPicker,
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Pick on Map'),
+                  ),
+                ],
               ),
+              if (_lat != null && _lng != null) ...[
+                const SizedBox(height: 6),
+                if ((_pickedAddress ?? '').isNotEmpty) Text(_pickedAddress!),
+                Text(
+                  'Lat: ${_lat!.toStringAsFixed(6)}, Lng: ${_lng!.toStringAsFixed(6)}',
+                  style: const TextStyle(color: Colors.black54),
+                ),
+              ],
+
               TextFormField(
                 controller: priceController,
                 decoration: const InputDecoration(labelText: "Price (e.g. 200000)"),
@@ -313,7 +382,6 @@ class _AddPropertyPageState extends State<AddPropertyPage> {
 
               SizedBox(height: size.height * 0.02),
 
-              // نصوص القوائم (تفصل بفواصل)
               TextFormField(
                 controller: amenitiesController,
                 decoration: const InputDecoration(

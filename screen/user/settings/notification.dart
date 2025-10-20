@@ -103,24 +103,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final uid = user.uid;
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        backgroundColor: const Color(0xff22577A),
-        child: const Icon(Icons.grid_view, color: Colors.white),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      bottomNavigationBar: BottomAppBar(
-        color: Colors.white,
-        shape: const CircularNotchedRectangle(),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            IconButton(icon: const Icon(Icons.home), onPressed: () {}),
-            const SizedBox(width: 40),
-            IconButton(icon: const Icon(Icons.settings), onPressed: () {}),
-          ],
-        ),
-      ),
+
+
       appBar: AppBar(
         title: const Text(
           'Notifications',

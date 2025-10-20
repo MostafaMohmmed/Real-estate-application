@@ -4,13 +4,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 
+// NEW
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
 class Propertdetalis extends StatefulWidget {
   final String? imageUrl;
   final Uint8List? imageBytes;
 
   final String title;
-  final String price; // مثلا "$120,000"
-  final String location;
+  final String price;
+  final String location; // نص العنوان (address/location)
   final String type;
 
   final double areaSqft;
@@ -62,19 +66,43 @@ class _PropertdetalisState extends State<Propertdetalis> {
   bool _busy = false;
   bool _isSaved = false;
   String? _savedDocId;
+  bool _useFrMirror = true;     // نجرب المرآة الفرنسية أولاً
+  bool _switchedOnce = false;   // حتى ما يضل يلف
 
-  List<String> label = ['Location Map', 'Hospital', 'School'];
+
+  // تبويبات
+  final List<String> label = ['Location Map', 'Hospital', 'School'];
   int currentIndex = 0;
-  String changeimg = 'images/location.png';
-  String schoolimg = 'images/location.png';
-  String locationimg = 'images/location.png';
-  String hospital = 'images/location.png';
+
+  // NEW: إحداثيات العقار (إن وُجدت)
+  GeoPoint? _geo;        // من Firestore
+  bool _loadingGeo = false;
 
   @override
   void initState() {
     super.initState();
     _prefetchOwnerImageIfNeeded();
     _checkIfAlreadySaved();
+    _loadGeoIfPossible();
+  }
+
+  // ---------- load geo ----------
+  Future<void> _loadGeoIfPossible() async {
+    if ((widget.propertyDocPath ?? '').isEmpty) return;
+    setState(() => _loadingGeo = true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .doc(widget.propertyDocPath!)
+          .get();
+      final d = snap.data() as Map<String, dynamic>?;
+      if (d != null && d['geo'] is GeoPoint) {
+        setState(() => _geo = d['geo'] as GeoPoint);
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      if (mounted) setState(() => _loadingGeo = false);
+    }
   }
 
   // ======== helpers: owner image / saved ========
@@ -219,7 +247,7 @@ class _PropertdetalisState extends State<Propertdetalis> {
     }
   }
 
-  // ======== NEW: طلب الشراء مباشرة مع تأكيد و Note ========
+  // ======== طلب الشراء (كما هو) ========
   Future<void> _confirmAndSubmitRequest() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -228,10 +256,9 @@ class _PropertdetalisState extends State<Propertdetalis> {
       return;
     }
 
-    // احصل على companyId + propId من المسار
     String? companyId, propId;
     if ((widget.propertyDocPath ?? '').isNotEmpty) {
-      final parts = widget.propertyDocPath!.split('/'); // companies/{cid}/properties/{pid}
+      final parts = widget.propertyDocPath!.split('/');
       if (parts.length >= 4) {
         companyId = parts[1];
         propId = parts[3];
@@ -246,9 +273,8 @@ class _PropertdetalisState extends State<Propertdetalis> {
       return;
     }
 
-    // جلب اسم ورقم المستخدم تلقائيًا
-    String userName = user.displayName ?? '';
-    String userPhone = user.phoneNumber ?? '';
+    String userName = FirebaseAuth.instance.currentUser?.displayName ?? '';
+    String userPhone = FirebaseAuth.instance.currentUser?.phoneNumber ?? '';
     try {
       final uSnap = await FirebaseFirestore.instance
           .collection('users')
@@ -258,53 +284,42 @@ class _PropertdetalisState extends State<Propertdetalis> {
       if ((ud['fullName'] ?? '').toString().isNotEmpty) {
         userName = (ud['fullName'] ?? '').toString();
       }
-      // جرّب أكثر من مفتاح: phone / phoneNumber / mobile
-      final ph = (ud['phone'] ?? ud['phoneNumber'] ?? ud['mobile'] ?? '')
-          .toString();
+      final ph =
+      (ud['phone'] ?? ud['phoneNumber'] ?? ud['mobile'] ?? '').toString();
       if (ph.isNotEmpty) userPhone = ph;
     } catch (_) {}
 
     final noteCtrl = TextEditingController();
 
-    // Dialog التأكيد (مع Note اختياري)
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Send request?'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // نعرض الاسم + الجوال تحت بعض
-              Text(userName.isEmpty ? 'Name: —' : 'Name: $userName'),
-              Text(userPhone.isEmpty ? 'Phone: —' : 'Phone: $userPhone'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: noteCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Note (optional)',
-                  border: OutlineInputBorder(),
-                ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Send request?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(userName.isEmpty ? 'Name: —' : 'Name: $userName'),
+            Text(userPhone.isEmpty ? 'Phone: —' : 'Phone: $userPhone'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: 'Note (optional)',
+                border: OutlineInputBorder(),
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Confirm'),
             ),
           ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm')),
+        ],
+      ),
     );
 
-    if (ok != true) return; // ألغى
+    if (ok != true) return;
 
     if (_busy) return;
     setState(() => _busy = true);
@@ -312,12 +327,9 @@ class _PropertdetalisState extends State<Propertdetalis> {
     try {
       final db = FirebaseFirestore.instance;
       final now = FieldValue.serverTimestamp();
-
-      // نحاول تحويل السعر إلى قيمة رقمية
       final priceValue =
       num.tryParse(widget.price.replaceAll(RegExp(r'[^0-9.]'), ''));
 
-      // id موحّد للطلب
       final reqRef = db.collection('purchaseRequests').doc();
       final reqId = reqRef.id;
 
@@ -326,30 +338,20 @@ class _PropertdetalisState extends State<Propertdetalis> {
         'status': 'pending',
         'createdAt': now,
         'updatedAt': now,
-
-        // أطراف الطلب
         'userUid': user.uid,
         'companyId': companyId,
-
-        // معلومات المستخدم (حتى تظهر للشركة بسهولة)
         'userName': userName,
         'userPhone': userPhone,
-
-        // معلومات العقار
         'propId': propId ?? '',
         'title': widget.title,
         'location': widget.location,
         'priceLabel': widget.price,
         'priceValue': priceValue,
-
-        // note
         'note': noteCtrl.text.trim(),
       };
 
-      // 1) الجدول المركزي
       await reqRef.set(centralPayload, SetOptions(merge: true));
 
-      // 2) نسخة الشركة
       await db
           .collection('companies')
           .doc(companyId)
@@ -362,7 +364,6 @@ class _PropertdetalisState extends State<Propertdetalis> {
         'buyerPhone': userPhone,
       }, SetOptions(merge: true));
 
-      // 3) نسخة المستخدم (للسجل/التتبع)
       await db
           .collection('users')
           .doc(user.uid)
@@ -370,7 +371,6 @@ class _PropertdetalisState extends State<Propertdetalis> {
           .doc(reqId)
           .set(centralPayload, SetOptions(merge: true));
 
-      // 4) إشعار للشركة
       await db
           .collection('companies')
           .doc(companyId)
@@ -452,14 +452,9 @@ class _PropertdetalisState extends State<Propertdetalis> {
             onPressed: _toggleSave,
             icon: _busy
                 ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-                : Icon(
-              _isSaved ? Icons.bookmark : Icons.bookmark_border,
-              color: const Color(0xFF4A43EC),
-            ),
+                width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border,
+                color: const Color(0xFF4A43EC)),
           ),
         ],
       ),
@@ -503,32 +498,26 @@ class _PropertdetalisState extends State<Propertdetalis> {
 
           Row(
             children: [
-              const Icon(Icons.location_on_outlined,
-                  size: 18, color: Colors.black54),
+              const Icon(Icons.location_on_outlined, size: 18, color: Colors.black54),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   widget.location,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.black54,
-                    fontSize: (13 * scale).clamp(11, 16),
-                  ),
+                  style: TextStyle(color: Colors.black54, fontSize: (13 * scale).clamp(11, 16)),
                 ),
               ),
               const SizedBox(width: 8),
               Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  // نوع العقار
-                  'Type',
-                  style: TextStyle(
+                child: Text(
+                  widget.type,
+                  style: const TextStyle(
                     color: Colors.deepOrange,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -556,9 +545,8 @@ class _PropertdetalisState extends State<Propertdetalis> {
             leading: CircleAvatar(
               radius: 22 * scale,
               backgroundColor: Colors.grey[300],
-              backgroundImage: (ownerImgFinal != null && ownerImgFinal.isNotEmpty)
-                  ? NetworkImage(ownerImgFinal!)
-                  : null,
+              backgroundImage:
+              (ownerImgFinal != null && ownerImgFinal.isNotEmpty) ? NetworkImage(ownerImgFinal!) : null,
               child: (ownerImgFinal == null || ownerImgFinal.isEmpty)
                   ? (_loadingOwnerImg
                   ? const CircularProgressIndicator(strokeWidth: 2)
@@ -567,15 +555,9 @@ class _PropertdetalisState extends State<Propertdetalis> {
             ),
             title: Text(
               widget.ownerName,
-              style: TextStyle(
-                fontSize: (15 * scale).clamp(12, 18),
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: (15 * scale).clamp(12, 18), fontWeight: FontWeight.w600),
             ),
-            subtitle: Text(
-              'Home Owner/Broker',
-              style: TextStyle(fontSize: (12 * scale).clamp(10, 16)),
-            ),
+            subtitle: Text('Home Owner/Broker', style: TextStyle(fontSize: (12 * scale).clamp(10, 16))),
           ),
 
           SizedBox(height: 6 * scale),
@@ -587,8 +569,7 @@ class _PropertdetalisState extends State<Propertdetalis> {
             itemSize: (20 * scale).clamp(14, 24),
             itemCount: 5,
             itemPadding: EdgeInsets.symmetric(horizontal: 4 * scale),
-            itemBuilder: (context, _) =>
-            const Icon(Icons.star, color: Colors.amber),
+            itemBuilder: (context, _) => const Icon(Icons.star, color: Colors.amber),
             onRatingUpdate: (v) {},
           ),
 
@@ -602,116 +583,58 @@ class _PropertdetalisState extends State<Propertdetalis> {
             style: sectionTitleStyle,
           ),
           if (visibleAmenities)
-            _sectionList(
-              widget.amenities.isNotEmpty ? widget.amenities : const ['No data'],
-              sectionTextStyle,
-            ),
+            _sectionList(widget.amenities.isNotEmpty ? widget.amenities : const ['No data'], sectionTextStyle),
 
           _sectionHeader(
             title: 'Interior Details',
             isExpanded: visibleInteriorDetails,
-            onTap: () =>
-                setState(() => visibleInteriorDetails = !visibleInteriorDetails),
+            onTap: () => setState(() => visibleInteriorDetails = !visibleInteriorDetails),
             bg: Colors.grey.shade100,
             style: sectionTitleStyle,
           ),
           if (visibleInteriorDetails)
-            _sectionList(
-              widget.interior.isNotEmpty ? widget.interior : const ['No data'],
-              sectionTextStyle,
-            ),
+            _sectionList(widget.interior.isNotEmpty ? widget.interior : const ['No data'], sectionTextStyle),
 
           _sectionHeader(
             title: 'Construction Details',
             isExpanded: visibleConstructionDetails,
-            onTap: () => setState(
-                    () => visibleConstructionDetails = !visibleConstructionDetails),
+            onTap: () => setState(() => visibleConstructionDetails = !visibleConstructionDetails),
             bg: Colors.grey.shade100,
             style: sectionTitleStyle,
           ),
           if (visibleConstructionDetails)
-            _sectionList(
-              widget.construction.isNotEmpty
-                  ? widget.construction
-                  : const ['No data'],
-              sectionTextStyle,
-            ),
+            _sectionList(widget.construction.isNotEmpty ? widget.construction : const ['No data'], sectionTextStyle),
 
           SizedBox(height: 20 * scale),
 
-          // التبويبات/الخريطة (placeholder)
-          SizedBox(
-            height: 40 * scale,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              separatorBuilder: (_, __) => SizedBox(width: 16 * scale),
-              itemCount: label.length,
-              itemBuilder: (context, index) {
-                final isSelected = currentIndex == index;
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      currentIndex = index;
-                      changeimg = index == 0
-                          ? locationimg
-                          : (index == 1 ? hospital : schoolimg);
-                    });
-                  },
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                        horizontal: 12 * scale, vertical: 6 * scale),
-                    decoration: BoxDecoration(
-                      color: isSelected ? Colors.deepOrange : Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        label[index],
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black,
-                          fontSize: (14 * scale).clamp(10, 16),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
+          // ===== خريطة بمرايا فرنسا =====
+          _sectionHeader(
+            title: 'Location Map',
+            isExpanded: true,
+            onTap: () {},
+            bg: Colors.grey.shade100,
+            style: sectionTitleStyle,
           ),
-          SizedBox(height: 14 * scale),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.asset(changeimg, fit: BoxFit.cover),
-            ),
-          ),
+          const SizedBox(height: 8),
+          _buildLocationMapCard(context),
 
           SizedBox(height: 20 * scale),
 
-          // ===== NEW: زر الحفظ الذي يرسل الطلب مباشرة مع تأكيد =====
+          // زر إرسال الطلب
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4A43EC),
-              shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               minimumSize: Size(double.infinity, (50 * scale).clamp(42, 60)),
             ),
             onPressed: _busy ? null : _confirmAndSubmitRequest,
             child: _busy
-                ? const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-                : Text(
-              'Save',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: (18 * scale).clamp(14, 20),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : Text('Save',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: (18 * scale).clamp(14, 20),
+                    fontWeight: FontWeight.w700)),
           ),
           SizedBox(height: 20 * scale),
         ],
@@ -719,6 +642,76 @@ class _PropertdetalisState extends State<Propertdetalis> {
     );
   }
 
+  // ---------- Location map card ----------
+  Widget _buildLocationMapCard(BuildContext context) {
+    const h = 200.0;
+
+    if (_loadingGeo) {
+      return const SizedBox(
+        height: h,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_geo == null) {
+      return Container(
+        height: h,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          widget.location.isEmpty ? 'No location available' : widget.location,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.black54),
+        ),
+      );
+    }
+
+    final latLng = LatLng(_geo!.latitude, _geo!.longitude);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: h,
+        child: FlutterMap(
+          options: MapOptions(
+            initialCenter: latLng,   // v7
+            initialZoom: 15,         // v7
+          ),
+          children: [
+            TileLayer(
+              urlTemplate:
+              'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png',
+              subdomains: const ['a', 'b', 'c'],
+              tileProvider: NetworkTileProvider(
+                headers:  {
+                  // أي قيمة مميّزة لتطبيقك
+                  'User-Agent': 'final_iug_2025/1.0 (+https://example.com)',
+                },
+              ),
+              // خيار: لتشوف الأخطاء في اللوج بدل الكراش
+              errorImage: const AssetImage('assets/images/tile_error.png'),
+            ),
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: latLng,
+                  width: 60,
+                  height: 60,
+                  child: const Icon(Icons.location_on, size: 48, color: Colors.red),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------- UI helpers ----------
   Widget _chip({required IconData icon, required String text}) => Row(
     children: [
       Icon(icon, color: Colors.deepOrange),
@@ -737,16 +730,14 @@ class _PropertdetalisState extends State<Propertdetalis> {
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration:
-      BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
       child: InkWell(
         onTap: onTap,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(title, style: style),
-            Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                color: Colors.black87),
+            Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.black87),
           ],
         ),
       ),

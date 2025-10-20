@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,24 +15,23 @@ class On_Boarding_screen extends StatefulWidget {
 
 class _On_Boarding_screenState extends State<On_Boarding_screen> {
   final PageController pageController = PageController();
+
+  // استعمل مفاتيح ترجمة بدل نصوص مباشرة
   final List<On_borarding_Image> listitem_view_page = [
     On_borarding_Image(
-      imageList: 'images/on_boarding.png',
-      title: 'Discover Properties Around You',
-      decreption:
-      'Find houses, apartments, or land with an interactive map covering all regions and neighborhoods.',
+      imageList: 'assets/images/on_boarding.png',
+      title: 'onb.discover.title',
+      decreption: 'onb.discover.desc',
     ),
     On_borarding_Image(
-      imageList: 'images/on_boarding_2.png',
-      title: 'Your Ideal Property, Just a Tap Away',
-      decreption:
-      'Looking to buy or rent? Easily filter listings to match your exact needs and budget.',
+      imageList: 'assets/images/on_boarding_2.png',
+      title: 'onb.ideal.title',
+      decreption: 'onb.ideal.desc',
     ),
     On_borarding_Image(
-      imageList: 'images/on_boarding_3.png',
-      title: 'Chat Directly with Owners and Agents',
-      decreption:
-      'Message property owners in real-time, get updates, and close deals faster—no middlemen.',
+      imageList: 'assets/images/on_boarding_3.png',
+      title: 'onb.chat.title',
+      decreption: 'onb.chat.desc',
     ),
   ];
 
@@ -42,14 +42,13 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
     if (_didRouteOnce || !mounted) return;
     _didRouteOnce = true;
 
-    // خزّن أن الـ onboarding تم
     final sp = await SharedPreferences.getInstance();
     await sp.setBool('onboarding_seen', true);
 
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => LoginAndSignUp()),
+      MaterialPageRoute(builder: (_) => const LoginAndSignUp()),
     );
   }
 
@@ -61,9 +60,15 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
 
   @override
   Widget build(BuildContext context) {
-    final Size size = MediaQuery.of(context).size;
-
     return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        icon: const Icon(Icons.language),
+        label: Text('language'.tr()),
+        onPressed: () async {
+          final isArabic = context.locale.languageCode == 'ar';
+          await context.setLocale(isArabic ? const Locale('en') : const Locale('ar'));
+        },
+      ),
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -74,10 +79,8 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
           itemBuilder: (context, index) {
             return LayoutBuilder(
               builder: (context, constraints) {
-                final double vPad =
-                (constraints.maxHeight * 0.05).clamp(12.0, 40.0);
-                final double hPad =
-                (constraints.maxWidth * 0.05).clamp(8.0, 32.0);
+                final double vPad = (constraints.maxHeight * 0.05).clamp(12.0, 40.0);
+                final double hPad = (constraints.maxWidth * 0.05).clamp(8.0, 32.0);
                 const double reserved = 220.0;
                 final double imgH = (constraints.maxHeight - vPad * 2 - reserved)
                     .clamp(100.0, constraints.maxHeight * 0.55);
@@ -94,11 +97,10 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
                         children: [
                           // Title
                           Text(
-                            item.title,
+                            item.title.tr(),
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(
-                              fontSize:
-                              (constraints.maxWidth * 0.05).clamp(14.0, 22.0),
+                              fontSize: (constraints.maxWidth * 0.05).clamp(14.0, 22.0),
                               fontWeight: FontWeight.w600,
                               color: const Color(0xFF000000),
                             ),
@@ -115,11 +117,10 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
 
                           // Description
                           Text(
-                            item.decreption,
+                            item.decreption.tr(),
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(
-                              fontSize:
-                              (constraints.maxWidth * 0.045).clamp(12.0, 18.0),
+                              fontSize: (constraints.maxWidth * 0.045).clamp(12.0, 18.0),
                               fontWeight: FontWeight.w500,
                               color: const Color(0xFF000000),
                             ),
@@ -131,13 +132,12 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               TextButton(
-                                onPressed: _finishAndGoLogin, // ✅ فعلت Skip
+                                onPressed: _finishAndGoLogin, // Skip
                                 child: Text(
-                                  "Skip",
+                                  'onb.actions.skip'.tr(),
                                   style: TextStyle(
                                     color: Colors.grey,
-                                    fontSize: (constraints.maxWidth * 0.04)
-                                        .clamp(12.0, 16.0),
+                                    fontSize: (constraints.maxWidth * 0.04).clamp(12.0, 16.0),
                                   ),
                                 ),
                               ),
@@ -147,7 +147,8 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
                                   return AnimatedContainer(
                                     duration: const Duration(milliseconds: 200),
                                     margin: EdgeInsets.symmetric(
-                                        horizontal: constraints.maxWidth * 0.01),
+                                      horizontal: constraints.maxWidth * 0.01,
+                                    ),
                                     width: active ? 12 : 8,
                                     height: active ? 12 : 8,
                                     decoration: BoxDecoration(
@@ -160,7 +161,7 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
                               TextButton(
                                 onPressed: () {
                                   if (pageInt == listitem_view_page.length - 1) {
-                                    _finishAndGoLogin(); // ✅ Start
+                                    _finishAndGoLogin(); // Start
                                   } else {
                                     pageController.animateToPage(
                                       pageInt + 1,
@@ -171,11 +172,10 @@ class _On_Boarding_screenState extends State<On_Boarding_screen> {
                                 },
                                 child: Text(
                                   pageInt == listitem_view_page.length - 1
-                                      ? "Start"
-                                      : "Next",
+                                      ? 'onb.actions.start'.tr()
+                                      : 'onb.actions.next'.tr(),
                                   style: GoogleFonts.inter(
-                                    fontSize: (constraints.maxWidth * 0.045)
-                                        .clamp(12.0, 16.0),
+                                    fontSize: (constraints.maxWidth * 0.045).clamp(12.0, 16.0),
                                     fontWeight: FontWeight.w600,
                                     color: const Color(0xFF4A43EC),
                                   ),

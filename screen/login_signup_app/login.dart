@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,16 +8,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // صفحاتك بعد تسجيل الدخول
 import 'package:final_iug_2025/screen/user/homePage.dart';
 import 'package:final_iug_2025/screen/login_signup_app/reset_password.dart';
+import '../../services/company_bootstrap.dart';
+import '../../services/plan_service.dart';
 import '../Company/company_home_page.dart';
 
 // سوشيال (Google)
 import 'package:google_sign_in/google_sign_in.dart';
 
-// ===================== Firebase Messaging لحفظ FCM token =====================
+// Firebase Messaging لحفظ FCM token
 import 'package:firebase_messaging/firebase_messaging.dart';
 
-// ===================== مستمع الإشعارات المحلي (ForegroundNotifier) =====================
+// مستمع الإشعارات المحلي
 import 'package:final_iug_2025/services/foreground_notifier.dart';
+
+// الترجمة
+import 'package:easy_localization/easy_localization.dart';
 
 class LogIn extends StatefulWidget {
   final bool isCompany;
@@ -44,18 +50,20 @@ class _LogInState extends State<LogIn> {
     super.dispose();
   }
 
-  void _show(String msg) {
+  void _show(String msgKey) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msgKey.tr())),
+    );
   }
 
   // ===================== إضافة إشعار بحسب نوع الحساب (User/Company) =====================
   Future<void> _addNotification({
     required String uid,
-    required String title,
-    required String body,
-    required String type,      // 'Account' | 'Security' | ...
-    required bool isCompany,   // 👈 مهم: يحدد المسار
+    required String titleKey,
+    required String bodyKey,
+    required String type, // 'Account' | 'Security' | ...
+    required bool isCompany,
   }) async {
     try {
       final root = isCompany ? 'companies' : 'users';
@@ -64,8 +72,8 @@ class _LogInState extends State<LogIn> {
           .doc(uid)
           .collection('notifications')
           .add({
-        'title': title,
-        'body': body,
+        'title': titleKey.tr(),
+        'body': bodyKey.tr(),
         'type': type,
         'isRead': false,
         'createdAt': FieldValue.serverTimestamp(),
@@ -96,7 +104,6 @@ class _LogInState extends State<LogIn> {
         'platform': 'flutter',
       }, SetOptions(merge: true));
 
-      // استمع لأي تحديث للتوكن
       _tokenSub?.cancel();
       _tokenSub = FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
         await FirebaseFirestore.instance
@@ -156,11 +163,11 @@ class _LogInState extends State<LogIn> {
   // ----------------- Email/Password login -----------------
   Future<void> _login() async {
     final email = _emailController.text.trim();
-    final pass = _passwordController.text.trim();
+    final pass  = _passwordController.text.trim();
 
     final emailOk = RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email);
-    if (!emailOk) return _show('Please enter a valid email.');
-    if (pass.length < 6) return _show('Password must be at least 6 characters.');
+    if (!emailOk) return _show('auth.errors.invalid_email');
+    if (pass.length < 6) return _show('auth.errors.password_min');
 
     setState(() => _loading = true);
     try {
@@ -172,24 +179,30 @@ class _LogInState extends State<LogIn> {
 
       final role = await _fetchRoleOnly(uid);
       if (role == null) {
-        _show('No profile found. Please register first.');
+        _show('auth.errors.no_profile');
         await FirebaseAuth.instance.signOut();
         return;
+      }
+
+      // ✅ للشركة فقط: ضمان إنشاء وثيقة الشركة + 5 مجاني أول مرة
+      if (role == 'company') {
+        await CompanyBootstrap.ensureCompanyDoc(initialFree: 5);
+        await _ensurePhonePresent(uid: uid, isCompany: true);
       }
 
       // إشعار نجاح تسجيل الدخول حسب نوع الحساب
       await _addNotification(
         uid: uid,
-        title: 'Signed in successfully',
-        body: 'You are now signed in.',
+        titleKey: 'notif.signin_success_title',
+        bodyKey: 'notif.signin_success_body',
         type: 'Account',
         isCompany: role == 'company',
       );
 
-      // مستمع الإشعارات المحلي (تظهر Toast/Heads-up لو أردت)
+      // مستمع الإشعارات المحلي
       await ForegroundNotifier.instance.start(uid);
 
-      // ✅ حفظ FCM token مباشرة بعد تسجيل الدخول
+      // حفظ FCM token للحساب الصحيح
       await _saveFcmTokenForAccount(
         uid: uid,
         isCompany: role == 'company',
@@ -198,20 +211,21 @@ class _LogInState extends State<LogIn> {
       await _navigateByRole(role);
     } on FirebaseAuthException catch (e) {
       final map = {
-        'user-not-found': 'No user found for that email.',
-        'wrong-password': 'Wrong password.',
-        'invalid-email': 'Invalid email address.',
-        'user-disabled': 'This account has been disabled.',
-        'too-many-requests': 'Too many attempts. Try again later.',
-        'network-request-failed': 'Network error. Check your connection.',
+        'user-not-found': 'auth.errors.user_not_found',
+        'wrong-password': 'auth.errors.wrong_password',
+        'invalid-email': 'auth.errors.invalid_email',
+        'user-disabled': 'auth.errors.user_disabled',
+        'too-many-requests': 'auth.errors.too_many_requests',
+        'network-request-failed': 'auth.errors.network',
       };
-      _show('❌ ${map[e.code] ?? 'Sign-in failed: ${e.code}'}');
-    } catch (e) {
-      _show('❌ Unexpected error: $e');
+      _show(map[e.code] ?? 'auth.errors.signin_failed');
+    } catch (_) {
+      _show('common.unexpected');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
 
   // ----------------- Helper: clear Google session safely -----------------
   Future<void> _clearGoogleSessionSafely() async {
@@ -233,7 +247,7 @@ class _LogInState extends State<LogIn> {
   // ----------------- Google Sign-In (User only) -----------------
   Future<void> _signInWithGoogle() async {
     if (widget.isCompany) {
-      _show('Company accounts cannot sign in with Google.');
+      _show('auth.errors.company_google_forbidden');
       return;
     }
     setState(() => _loading = true);
@@ -258,7 +272,7 @@ class _LogInState extends State<LogIn> {
 
       if (role == 'company') {
         await FirebaseAuth.instance.signOut();
-        _show('This email belongs to a company account. Please use email login.');
+        _show('auth.errors.email_belongs_company');
         return;
       }
 
@@ -269,8 +283,8 @@ class _LogInState extends State<LogIn> {
       // إشعار نجاح تسجيل الدخول بجوجل (User فقط)
       await _addNotification(
         uid: user.uid,
-        title: 'Signed in with Google',
-        body: 'Google sign-in completed.',
+        titleKey: 'notif.google_signin_title',
+        bodyKey: 'notif.google_signin_body',
         type: 'Account',
         isCompany: false,
       );
@@ -278,28 +292,29 @@ class _LogInState extends State<LogIn> {
       // مستمع الإشعارات المحلي
       await ForegroundNotifier.instance.start(user.uid);
 
-      // ✅ حفظ FCM token للمستخدم مباشرة بعد نجاح Google Sign-In
+      // حفظ FCM token
       await _saveFcmTokenForAccount(
         uid: user.uid,
         isCompany: false,
       );
-// ✅ اطلب رقم الجوال لو مش محفوظ
+
+      // اطلب رقم الجوال لو مش محفوظ
       await _ensurePhonePresent(uid: user.uid, isCompany: false);
+
       await _navigateByRole('user');
     } on FirebaseAuthException catch (e) {
-      _show('Google sign-in failed: ${e.code}');
-    } catch (e) {
-      _show('Unexpected: $e');
+      debugPrint('Google sign-in failed: ${e.code}');
+      _show('auth.errors.google_failed');
+    } catch (_) {
+      _show('common.unexpected');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   // ----------------- Placeholders (Apple / Facebook) -----------------
-  void _underDevelopment() {
-    _show('Feature under development');
-  }
-  // --- أضف هذه الدالة داخل _LogInState ---
+  void _underDevelopment() => _show('common.under_dev');
+
   /// يطلب رقم الجوال مرة واحدة إذا لم يكن محفوظًا، ثم يحفظه في Firestore.
   Future<void> _ensurePhonePresent({
     required String uid,
@@ -311,11 +326,9 @@ class _LogInState extends State<LogIn> {
     final existing = (snap.data() ?? {});
     final already = (existing['phone'] ?? '').toString().trim();
 
-    if (already.isNotEmpty) return; // رقم موجود - لا حاجة لشيء
+    if (already.isNotEmpty) return;
 
-    String? phone;
-    // نافذة لإدخال الرقم
-    phone = await showModalBottomSheet<String>(
+    String? phone = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
@@ -329,16 +342,18 @@ class _LogInState extends State<LogIn> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Add your phone number',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              Text(
+                'phone.add_title'.tr(),
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
               const SizedBox(height: 8),
               TextField(
                 controller: c,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  hintText: 'e.g. +9705XXXXXXXX',
+                decoration: InputDecoration(
+                  hintText: 'phone.hint'.tr(),
                   filled: true,
-                  border: OutlineInputBorder(borderSide: BorderSide.none),
+                  border: const OutlineInputBorder(borderSide: BorderSide.none),
                 ),
               ),
               const SizedBox(height: 12),
@@ -348,13 +363,13 @@ class _LogInState extends State<LogIn> {
                   final ok = RegExp(r'^[0-9+\-\s]{6,}$').hasMatch(raw);
                   if (!ok) {
                     ScaffoldMessenger.of(ctx).showSnackBar(
-                      const SnackBar(content: Text('Enter a valid phone number')),
+                      SnackBar(content: Text('phone.invalid'.tr())),
                     );
                     return;
                   }
                   Navigator.pop(ctx, raw);
                 },
-                child: const Text('Save'),
+                child: Text('common.save'.tr()),
               ),
               const SizedBox(height: 12),
             ],
@@ -363,11 +378,9 @@ class _LogInState extends State<LogIn> {
       },
     );
 
-    if (phone == null || phone.trim().isEmpty) return; // المستخدم أغلق بدون إدخال
-
+    if (phone == null || phone.trim().isEmpty) return;
     await ref.set({'phone': phone.trim()}, SetOptions(merge: true));
   }
-
 
   // ----------------- UI -----------------
   @override
@@ -385,7 +398,7 @@ class _LogInState extends State<LogIn> {
             keyboardType: TextInputType.emailAddress,
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
-              hintText: 'Email',
+              hintText: 'auth.email'.tr(),
               filled: true,
               fillColor: const Color(0xFFF2F3F5),
               border: OutlineInputBorder(
@@ -409,7 +422,7 @@ class _LogInState extends State<LogIn> {
                 ),
                 onPressed: () => setState(() => passwordVisible = !passwordVisible),
               ),
-              hintText: 'Password',
+              hintText: 'auth.password'.tr(),
               filled: true,
               fillColor: const Color(0xFFF2F3F5),
               border: OutlineInputBorder(
@@ -436,9 +449,9 @@ class _LogInState extends State<LogIn> {
                         ),
                       );
                     },
-                    child: const Text(
-                      'Forgot Password?',
-                      style: TextStyle(
+                    child: Text(
+                      'auth.forgot_password'.tr(),
+                      style: const TextStyle(
                         fontSize: 17,
                         decoration: TextDecoration.underline,
                         color: Color(0xFF6A798A),
@@ -463,7 +476,10 @@ class _LogInState extends State<LogIn> {
                   width: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-                    : const Text('Login', style: TextStyle(color: Colors.white)),
+                    : Text(
+                  'auth.login'.tr(),
+                  style: const TextStyle(color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -472,12 +488,12 @@ class _LogInState extends State<LogIn> {
           if (showSocial) ...[
             const SizedBox(height: 14),
             Row(
-              children: const [
-                Expanded(child: Divider(thickness: 1)),
-                SizedBox(width: 8),
-                Text('or continue with'),
-                SizedBox(width: 8),
-                Expanded(child: Divider(thickness: 1)),
+              children: [
+                const Expanded(child: Divider(thickness: 1)),
+                const SizedBox(width: 8),
+                Text('auth.or_continue_with'.tr()),
+                const SizedBox(width: 8),
+                const Expanded(child: Divider(thickness: 1)),
               ],
             ),
             const SizedBox(height: 12),
@@ -485,7 +501,7 @@ class _LogInState extends State<LogIn> {
               children: [
                 Expanded(
                   child: _socialButton(
-                    label: 'Google',
+                    label: 'auth.google'.tr(),
                     icon: Icons.g_mobiledata,
                     onTap: _loading ? null : _signInWithGoogle,
                   ),
@@ -493,7 +509,7 @@ class _LogInState extends State<LogIn> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _socialButton(
-                    label: 'Facebook',
+                    label: 'auth.facebook'.tr(),
                     icon: Icons.facebook,
                     onTap: _loading ? null : _underDevelopment,
                   ),
@@ -501,7 +517,7 @@ class _LogInState extends State<LogIn> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _socialButton(
-                    label: 'Apple',
+                    label: 'auth.apple'.tr(),
                     icon: Icons.apple,
                     onTap: _loading ? null : _underDevelopment,
                   ),
