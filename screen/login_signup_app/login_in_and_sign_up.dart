@@ -221,3 +221,7 @@ class _LoginAndSignUpState extends State<LoginAndSignUp> {
     );
   }
 }
+/// 🔧 هذه تضيفها تحت الكلاس أو في utils.dart
+bool isWideScreen(BuildContext context) {
+  return MediaQuery.of(context).size.width >= 900;
+}
